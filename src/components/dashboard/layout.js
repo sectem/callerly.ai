@@ -29,6 +29,11 @@ const NAVIGATION_ITEMS = [
     icon: 'bi-grid'
   },
   {
+    label: 'AI Agents',
+    href: '/dashboard/agents',
+    icon: 'bi-robot'
+  },
+  {
     label: 'Appointments',
     href: '/dashboard/appointments',
     icon: 'bi-calendar'

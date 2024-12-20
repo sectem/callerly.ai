@@ -1,5 +1,5 @@
 'use client'
-import { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '@/utils/supabase'
 
 const AuthContext = createContext({})
@@ -7,116 +7,102 @@ const AuthContext = createContext({})
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
 
-  // Initialize auth state
-  useEffect(() => {
-    let mounted = true
+  const fetchUserData = async (authUser) => {
+    try {
+      console.log('Fetching data for user:', authUser.id);
 
-    const initializeAuth = async () => {
-      try {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-        
-        if (sessionError) throw sessionError
-        if (mounted) setUser(session?.user ?? null)
-      } catch (error) {
-        console.error('Auth initialization error:', error)
-        if (mounted) setError(error.message)
-      } finally {
-        if (mounted) setLoading(false)
+      // Fetch user profile with subscription data
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', authUser.id)
+        .single();
+
+      if (profileError) {
+        console.error('Profile query error:', profileError);
+        throw profileError;
       }
+
+      console.log('Profile found:', profile);
+
+      // Create subscription object if status is active
+      const subscription = profile.subscription_status === 'active' ? {
+        plan: profile.subscription_plan || 'Standard',
+        status: profile.subscription_status,
+        current_period_end: profile.subscription_period_end,
+        stripe_subscription_id: profile.stripe_subscription_id,
+        stripe_customer_id: profile.stripe_customer_id
+      } : null;
+
+      // Maintain backward compatibility with existing code
+      const userData = {
+        ...authUser,
+        id: authUser.id,  // Ensure id is from auth user
+        email: authUser.email,  // Ensure email is from auth user
+        subscription_status: profile.subscription_status,
+        stripe_customer_id: profile.stripe_customer_id,
+        stripe_subscription_id: profile.stripe_subscription_id,
+        subscription_period_end: profile.subscription_period_end,
+        first_name: profile.first_name,
+        last_name: profile.last_name,
+        company_name: profile.company_name,
+        phone_number: profile.phone_number,
+        role: profile.role || authUser.role,
+        avatar_url: profile.avatar_url,
+        subscription  // Add the formatted subscription object
+      };
+
+      console.log('Setting user data:', userData);
+      setUser(userData);
+
+    } catch (error) {
+      console.error('Error in fetchUserData:', error);
+      // If profile fetch fails, still maintain basic user data
+      setUser({
+        ...authUser,
+        id: authUser.id,
+        email: authUser.email,
+        role: authUser.role
+      });
+    } finally {
+      setLoading(false);
     }
+  };
 
-    initializeAuth()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) {
-        setUser(session?.user ?? null)
-        setError(null)
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        fetchUserData(session.user)
+      } else {
+        setLoading(false)
+        setUser(null)
       }
     })
 
-    return () => {
-      mounted = false
-      subscription.unsubscribe()
-    }
-  }, [])
-
-  // Memoized auth methods
-  const signIn = useCallback(async (credentials) => {
-    try {
-      setError(null)
-      const { data, error } = await supabase.auth.signInWithPassword(credentials)
-      if (error) throw error
-      return { data, error: null }
-    } catch (error) {
-      setError(error.message)
-      return { data: null, error }
-    }
-  }, [])
-
-  const signUp = useCallback(async (credentials) => {
-    try {
-      setError(null)
-      const { data, error } = await supabase.auth.signUp(credentials)
-      
-      if (error) throw error
-
-      // Handle successful signup
-      if (data) {
-        // Set the user immediately if auto-confirm is enabled
-        if (data.session) {
-          setUser(data.session.user)
-        }
-        return { data, error: null }
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        fetchUserData(session.user)
+      } else {
+        setUser(null)
+        setLoading(false)
       }
-    } catch (error) {
-      setError(error.message)
-      return { data: null, error }
-    }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
-  const signOut = useCallback(async () => {
-    try {
-      setError(null)
-      const { error } = await supabase.auth.signOut()
-      if (error) throw error
-      return { error: null }
-    } catch (error) {
-      setError(error.message)
-      return { error }
-    }
-  }, [])
-
-  // Memoized context value
-  const value = useMemo(() => ({
+  const value = {
     user,
     loading,
-    error,
-    signIn,
-    signUp,
-    signOut,
-  }), [user, loading, error, signIn, signUp, signOut])
-
-  if (loading) {
-    return <div className="d-flex justify-content-center align-items-center min-vh-100">
-      <div className="spinner-border text-primary" role="status">
-        <span className="visually-hidden">Loading...</span>
-      </div>
-    </div>
+    setUser,
   }
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  )
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export const useAuth = () => {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-  return context
+  return useContext(AuthContext)
 } 
