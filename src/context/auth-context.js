@@ -94,10 +94,52 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Add authentication methods
+  const signIn = async ({ email, password }) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+      if (error) throw error
+      return { data }
+    } catch (error) {
+      console.error('Error signing in:', error.message)
+      return { error }
+    }
+  }
+
+  const signOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      setUser(null)
+    } catch (error) {
+      console.error('Error signing out:', error.message)
+      return { error }
+    }
+  }
+
+  const resetPassword = async (email) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      if (error) throw error
+      return { data: true }
+    } catch (error) {
+      console.error('Error resetting password:', error.message)
+      return { error }
+    }
+  }
+
   const value = {
     user,
     loading,
     setUser,
+    signIn,
+    signOut,
+    resetPassword,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
