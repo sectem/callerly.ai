@@ -136,7 +136,7 @@ export default function AgentsPage() {
           )
         `)
         .eq('user_id', user.id)
-        .maybeSingle();
+        .single();
 
       if (error) {
         console.error('Supabase error:', error);
@@ -147,10 +147,13 @@ export default function AgentsPage() {
       setAgent(data);
       
       if (data) {
+        // Set script content if available
         setScriptContent(data.scripts?.content || '');
-        setFirstMessage(data.first_message || '');
-        setEndCallMessage(data.end_call_message || '');
-        setVoicemailMessage(data.voicemail_message || '');
+        
+        // Set messages from vapi_agents table
+        setFirstMessage(data.first_message || 'Hi, this is your AI assistant. How can I help you today?');
+        setEndCallMessage(data.end_call_message || 'Thank you for your time. Have a great day!');
+        setVoicemailMessage(data.voicemail_message || 'Hi, this is your AI assistant. I\'m sorry I missed your call. Please call back at your convenience.');
       }
     } catch (error) {
       console.error('Error loading agent:', error);

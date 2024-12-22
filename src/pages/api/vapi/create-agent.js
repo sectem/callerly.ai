@@ -50,13 +50,13 @@ export default async function handler(req, res) {
       voicemailMessage
     );
 
-    // First, create the script
+    // Create the script
     const { data: script, error: scriptError } = await supabase
       .from('scripts')
       .insert({
         user_id: user.id,
         title: `Script for ${name}`,
-        content: scriptContent,
+        content: scriptContent
       })
       .select()
       .single();
@@ -66,7 +66,7 @@ export default async function handler(req, res) {
       throw scriptError;
     }
 
-    // Then store the agent
+    // Then store the agent with messages
     const { data: agent, error: dbError } = await supabase
       .from('vapi_agents')
       .insert({

@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     // Update the agent in VAPI using the VAPI agent ID
     await updateAgentScript(dbAgent.agent_id, scriptContent, name, firstMessage, endCallMessage, voicemailMessage);
 
-    // Update the script in our database
+    // Update the script content
     const { data: script, error: scriptError } = await supabase
       .from('scripts')
       .update({ content: scriptContent })
@@ -64,7 +64,7 @@ export default async function handler(req, res) {
       throw scriptError;
     }
 
-    // Update the agent in our database
+    // Update the agent name and messages
     const { data: agent, error: agentError } = await supabase
       .from('vapi_agents')
       .update({
@@ -85,7 +85,7 @@ export default async function handler(req, res) {
       success: true,
       agent: {
         ...agent,
-        script: script
+        script
       },
     });
   } catch (error) {

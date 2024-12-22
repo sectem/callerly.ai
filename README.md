@@ -6,11 +6,12 @@ A modern web application built with Next.js, Supabase, and Stripe for AI-powered
 
 - 🤖 AI-powered inbound call handling
 - 📅 Automated appointment scheduling
-- 💳 Subscription-based billing with Stripe
+- 💳 Credit-based wallet system for call minutes
 - 🔐 Secure authentication with Supabase
 - 📱 Responsive dashboard interface
-- 📊 Advanced analytics and reporting
+- 📊 Usage analytics and reporting
 - 🔄 CRM integrations
+- 📝 Customizable AI agent scripts and messages
 
 ## Tech Stack
 
@@ -20,6 +21,40 @@ A modern web application built with Next.js, Supabase, and Stripe for AI-powered
 - **Payments**: Stripe
 - **Styling**: CSS Modules, Bootstrap Icons
 - **Deployment**: Vercel
+
+## Database Structure
+
+### Key Tables
+
+- `vapi_agents`: Stores AI agent configurations and message templates
+  - Basic agent information (name, phone number)
+  - Message templates (first message, end call message, voicemail message)
+  - References to scripts
+
+- `scripts`: Stores AI agent scripts and content
+  - Main script content
+  - Title and metadata
+  - Associated with agents via foreign key
+
+- `wallets`: Stores user credit information
+  - Available credits (in minutes)
+  - Credit usage history
+  - Transaction records
+
+### Credit System
+
+The platform uses a credit-based wallet system:
+- Credits are purchased and stored in the user's wallet
+- Each minute of agent call time consumes one credit
+- Users can top up their wallet at any time
+- Usage history and remaining credits are tracked in real-time
+
+### Message Templates
+
+The system uses three types of message templates for each agent:
+1. **First Message**: Initial greeting when the call starts
+2. **End Call Message**: Closing message before ending the call
+3. **Voicemail Message**: Message left when the call goes to voicemail
 
 ## Prerequisites
 
@@ -44,10 +79,8 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key
 STRIPE_SECRET_KEY=your_stripe_secret_key
 STRIPE_WEBHOOK_SECRET=your_webhook_secret
 
-# Stripe Product/Price IDs
-NEXT_PUBLIC_STRIPE_BASIC_PLAN_ID=price_basic
-NEXT_PUBLIC_STRIPE_PREMIUM_PLAN_ID=price_premium
-NEXT_PUBLIC_STRIPE_ENTERPRISE_PLAN_ID=price_enterprise
+# Product Configuration
+NEXT_PUBLIC_CREDIT_PRICE_PER_MINUTE=your_price_per_minute
 ```
 
 ## Getting Started
@@ -92,6 +125,8 @@ NEXT_PUBLIC_STRIPE_ENTERPRISE_PLAN_ID=price_enterprise
 │   ├── context/           # React context providers
 │   ├── pages/             # Pages router
 │   │   ├── api/          # API routes
+│   │   │   ├── vapi/    # VAPI integration endpoints
+│   │   │   └── wallet/  # Wallet management endpoints
 │   │   └── dashboard/    # Dashboard pages
 │   ├── styles/            # CSS modules and global styles
 │   ├── types/             # TypeScript type definitions
@@ -100,6 +135,27 @@ NEXT_PUBLIC_STRIPE_ENTERPRISE_PLAN_ID=price_enterprise
 └── supabase/             # Supabase configurations
     └── migrations/       # Database migrations
 ```
+
+## API Endpoints
+
+### VAPI Integration Endpoints
+
+- `POST /api/vapi/create-agent` - Create a new AI agent with script and messages
+  - Creates script content
+  - Sets up message templates
+  - Associates with phone number
+
+- `PUT /api/vapi/update-script` - Update an existing agent's script and messages
+  - Updates script content
+  - Updates message templates
+  - Updates agent configuration
+
+### Wallet Management Endpoints
+
+- `POST /api/wallet/add-credits` - Purchase and add credits to wallet
+- `GET /api/wallet/balance` - Get current wallet balance
+- `GET /api/wallet/usage-history` - Get credit usage history
+- `POST /api/wallet/deduct-credits` - Deduct credits after call completion
 
 ## Development Guidelines
 
@@ -137,19 +193,6 @@ The application is configured for deployment on Vercel:
 2. Connect your repository to Vercel
 3. Configure environment variables
 4. Deploy!
-
-## API Documentation
-
-### Authentication Endpoints
-
-- `POST /api/auth/check-user` - Check user existence
-- `POST /api/auth/resend-verification` - Resend verification email
-
-### Stripe Endpoints
-
-- `POST /api/stripe/create-checkout-session` - Create checkout session
-- `POST /api/stripe/create-portal-session` - Create customer portal session
-- `POST /api/stripe/webhook` - Handle Stripe webhooks
 
 ## Contributing
 

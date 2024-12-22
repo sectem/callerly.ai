@@ -15,10 +15,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { user_id } = req.body;
+    const { payment_method, amount, type, user_id } = req.body;
+
+    // Handle getting payment method details
+    if (type === 'get_payment_method') {
+      try {
+        const paymentMethod = await stripe.paymentMethods.retrieve(payment_method);
+        return res.status(200).json({ paymentMethod });
+      } catch (error) {
+        console.error('Error retrieving payment method:', error);
+        return res.status(400).json({ error: 'Invalid payment method' });
+      }
+    }
 
     if (!user_id) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'User ID is required' });
     }
 
     // Get user's payment method to get Stripe customer ID
@@ -37,18 +48,25 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'No payment method found' });
     }
 
-    // Create portal session
-    const session = await stripe.billingPortal.sessions.create({
+    // Create payment intent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount * 100, // Convert to cents
+      currency: 'usd',
       customer: paymentMethod.stripe_customer_id,
-      return_url: `${req.headers.origin}/dashboard/billing`,
+      payment_method: payment_method,
+      off_session: true,
+      confirm: true,
     });
 
-    return res.status(200).json({ url: session.url });
+    return res.status(200).json({ 
+      success: true,
+      payment_intent: paymentIntent.id 
+    });
 
   } catch (error) {
-    console.error('Error creating portal session:', error);
+    console.error('Error processing payment:', error);
     return res.status(500).json({
-      error: error.message || 'Failed to create portal session'
+      error: error.message || 'Failed to process payment'
     });
   }
-} 
+}

@@ -1,15 +1,15 @@
 'use client'
-import { useState, useCallback, useMemo, useEffect } from 'react'
-import { useAuth } from '@/context/auth-context'
+import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { validateEmail, validatePassword } from '@/utils/form'
 import { ERROR_MESSAGES } from '@/constants/auth'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
 const REQUIRED_FIELDS = ['firstName', 'lastName', 'email', 'password', 'confirmPassword', 'acceptTerms']
 
-export default function SignUpForm() {
+function SignUpFormContent() {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -25,25 +25,15 @@ export default function SignUpForm() {
   const [touched, setTouched] = useState({})
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [signupSuccess, setSignupSuccess] = useState(false)
-  const { signUp, user } = useAuth()
   const router = useRouter()
+  const supabase = createClientComponentClient()
 
-  // Effect to handle redirection after successful signup
-  useEffect(() => {
-    if (signupSuccess && user) {
-      router.push('/plans')
-    }
-  }, [signupSuccess, user, router])
-
-  // Memoized form handlers
   const handleChange = useCallback((e) => {
     const { name, value, type, checked } = e.target
     setFormData(prev => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }))
-    // Clear error when user starts typing
     setError(null)
   }, [])
 
@@ -52,7 +42,6 @@ export default function SignUpForm() {
     setTouched(prev => ({ ...prev, [name]: true }))
   }, [])
 
-  // Memoized validation functions
   const getFieldError = useCallback((fieldName) => {
     if (!touched[fieldName]) return ''
     
@@ -100,7 +89,8 @@ export default function SignUpForm() {
       setError(null)
       setLoading(true)
 
-      const { data, error: signUpError } = await signUp({
+      // Create user account without email verification
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: {
@@ -110,8 +100,7 @@ export default function SignUpForm() {
             company: formData.companyName,
             phone: formData.phoneNumber,
             role: formData.role
-          },
-          emailRedirectTo: `${window.location.origin}/auth/callback`
+          }
         }
       })
 
@@ -123,25 +112,41 @@ export default function SignUpForm() {
         throw signUpError
       }
 
-      if (data) {
-        router.push('/confirm-email')
+      if (authData?.user) {
+        // Get current session
+        const { data: { session } } = await supabase.auth.getSession()
+
+        // Only sign in if not already signed in
+        if (!session) {
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email: formData.email,
+            password: formData.password,
+          })
+
+          if (signInError) {
+            console.error('Sign in error:', signInError)
+            // Continue anyway since the account was created
+          }
+        }
+
+        // Redirect to dashboard
+        router.push('/dashboard')
       }
 
     } catch (error) {
-      setError(error.message)
+      console.error('Signup error:', error)
+      setError(error.message || 'Failed to sign up')
     } finally {
       setLoading(false)
     }
   }
 
-  // Memoized class name generator
   const getInputClassName = useCallback((fieldName) => {
     const baseClasses = 'form-control rounded-3'
     const errorClass = touched[fieldName] && getFieldError(fieldName) ? 'is-invalid' : ''
     return `${baseClasses} ${errorClass}`.trim()
   }, [touched, getFieldError])
 
-  // Memoized form fields
   const renderFormField = useCallback(({ name, label, type = 'text', ...props }) => (
     <div className="form-floating">
       <input
@@ -260,7 +265,7 @@ export default function SignUpForm() {
               </div>
 
               <div className="mt-4">
-                <div className="form-check mb-2">
+                <div className="form-check">
                   <input
                     type="checkbox"
                     className={`form-check-input ${touched.acceptTerms && !formData.acceptTerms ? 'is-invalid' : ''}`}
@@ -269,19 +274,18 @@ export default function SignUpForm() {
                     checked={formData.acceptTerms}
                     onChange={handleChange}
                     onBlur={handleBlur}
-                    required
                   />
                   <label className="form-check-label small" htmlFor="acceptTerms">
-                    By signing up, you agree to our Terms
+                    I agree to the <Link href="/terms" className="text-decoration-none">Terms of Service</Link> and <Link href="/privacy" className="text-decoration-none">Privacy Policy</Link>
                   </label>
-                  {touched.acceptTerms && getFieldError('acceptTerms') && (
+                  {touched.acceptTerms && !formData.acceptTerms && (
                     <div className="invalid-feedback">
-                      {getFieldError('acceptTerms')}
+                      {ERROR_MESSAGES.TERMS_REQUIRED}
                     </div>
                   )}
                 </div>
 
-                <div className="form-check">
+                <div className="form-check mt-2">
                   <input
                     type="checkbox"
                     className="form-check-input"
@@ -291,38 +295,35 @@ export default function SignUpForm() {
                     onChange={handleChange}
                   />
                   <label className="form-check-label small" htmlFor="acceptPromotional">
-                    I agree to receive promotional content
+                    I agree to receive promotional emails
                   </label>
                 </div>
               </div>
 
-              <button
-                type="submit"
-                className="btn btn-primary w-100 py-2 mt-4 rounded-3"
-                disabled={loading}
-              >
-                {loading ? 'Creating account...' : 'Join'}
-              </button>
-
-              <div className="text-center mt-4">
-                <p className="text-muted small mb-3">or</p>
-                <div className="d-flex justify-content-center gap-3">
-                  <button type="button" className="btn btn-outline-secondary rounded-3">
-                    <i className="bi bi-google"></i>
-                  </button>
-                  <button type="button" className="btn btn-outline-secondary rounded-3">
-                    <i className="bi bi-apple"></i>
-                  </button>
-                  <button type="button" className="btn btn-outline-secondary rounded-3">
-                    <i className="bi bi-windows"></i>
-                  </button>
-                </div>
+              <div className="mt-4">
+                <button
+                  type="submit"
+                  className="btn btn-primary w-100 py-3 rounded-3"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                      Creating account...
+                    </>
+                  ) : (
+                    'Create account'
+                  )}
+                </button>
               </div>
 
               <div className="text-center mt-4">
-                <p className="text-muted small mb-0">
-                  Already have an account? <Link href="/" className="text-decoration-none text-primary">Sign in</Link>
-                </p>
+                <small className="text-muted">
+                  Already have an account?{' '}
+                  <Link href="/login" className="text-decoration-none">
+                    Log in
+                  </Link>
+                </small>
               </div>
             </form>
           </div>
@@ -330,4 +331,8 @@ export default function SignUpForm() {
       </div>
     </div>
   )
+}
+
+export default function SignUpForm() {
+  return <SignUpFormContent />
 } 

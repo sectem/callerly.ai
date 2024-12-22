@@ -2,32 +2,35 @@ import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
 import { NextResponse } from 'next/server';
 
 export async function middleware(req) {
-  // Create a Supabase client configured to use cookies
   const res = NextResponse.next();
   const supabase = createMiddlewareClient({ req, res });
 
-  // Check auth session
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  // Refresh session if expired - required for Server Components
+  const { data: { session }, error } = await supabase.auth.getSession();
 
-  // If accessing Twilio API routes, verify authentication
-  if (req.nextUrl.pathname.startsWith('/api/twilio')) {
-    if (!session) {
-      return new NextResponse(
-        JSON.stringify({ error: 'Authentication required' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
-      );
+  // Handle auth callback
+  if (req.nextUrl.pathname === '/auth/callback') {
+    if (session) {
+      return NextResponse.redirect(new URL('/dashboard', req.url));
+    }
+    if (error) {
+      return NextResponse.redirect(new URL('/signup?error=auth_failed', req.url));
     }
   }
 
   return res;
 }
 
-// Specify which routes this middleware should run for
+// Specify which routes to run the middleware on
 export const config = {
   matcher: [
-    '/api/twilio/:path*',
-    '/dashboard/:path*'
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public (public files)
+     */
+    '/((?!_next/static|_next/image|favicon.ico|public).*)',
   ],
 }; 
