@@ -29,30 +29,15 @@ export default async function handler(req, res) {
     }
 
     // Handle the event
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      const { user_id, minutes } = session.metadata;
-
-      if (!user_id || !minutes) {
-        throw new Error('Missing required metadata');
-      }
-
-      // Initialize Supabase client
-      const supabase = createPagesServerClient({ req, res });
-
-      // Add credits to user's wallet
-      const { error: creditError } = await supabase.rpc('add_wallet_credits', {
-        p_user_id: user_id,
-        p_amount: parseInt(minutes),
-        p_transaction_type: 'purchase',
-        p_description: `Purchased ${minutes} minutes`
-      });
-
-      if (creditError) {
-        throw creditError;
-      }
-
-      console.log(`Successfully added ${minutes} credits to user ${user_id}`);
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        // Handle successful payment
+        break;
+      case 'payment_intent.payment_failed':
+        // Handle failed payment
+        break;
+      default:
+        console.log(`Unhandled event type ${event.type}`);
     }
 
     return res.status(200).json({ received: true });

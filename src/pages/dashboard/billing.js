@@ -4,13 +4,9 @@ import { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/dashboard/layout';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Card, Table, Nav } from 'react-bootstrap';
-import WalletDisplay from '@/components/dashboard/wallet/wallet-display';
-import CreditPurchaseModal from '@/components/dashboard/wallet/credit-purchase-modal';
 import ManagePaymentMethodsModal from '@/components/dashboard/billing/manage-payment-methods-modal';
 
 export default function BillingPage() {
-  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
-  const [showAddPayment, setShowAddPayment] = useState(false);
   const [showManagePayments, setShowManagePayments] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -18,7 +14,6 @@ export default function BillingPage() {
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [paymentMethodLoading, setPaymentMethodLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('charges');
-  const [charges, setCharges] = useState([]);
   const supabase = createClientComponentClient();
 
   useEffect(() => {
@@ -34,7 +29,6 @@ export default function BillingPage() {
       }
       setUser(user);
       await loadPaymentMethods(user.id);
-      await loadCharges(user.id);
       setLoading(false);
     } catch (error) {
       console.error('Auth error:', error);
@@ -102,24 +96,6 @@ export default function BillingPage() {
     }
   };
 
-  const loadCharges = async (userId) => {
-    try {
-      const { data, error } = await supabase
-        .from('wallet_transactions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error loading charges:', error);
-      } else {
-        setCharges(data || []);
-      }
-    } catch (error) {
-      console.error('Error loading charges:', error);
-    }
-  };
-
   const handlePaymentMethodAdded = () => {
     if (user) {
       loadPaymentMethods(user.id);
@@ -143,6 +119,8 @@ export default function BillingPage() {
   return (
     <DashboardLayout>
       <div className="container py-4">
+        <h1 className="h3 mb-4">Billing</h1>
+        
         {error && (
           <div className="alert alert-danger" role="alert">
             {error}
@@ -202,37 +180,12 @@ export default function BillingPage() {
             </Card>
           </div>
 
-          {/* Current Balance Card */}
-          <div className="col-md-6">
-            <Card>
-              <Card.Body>
-                <div className="d-flex justify-content-between align-items-center mb-3">
-                  <h5 className="card-title mb-0">Current Balance</h5>
-                  <button 
-                    className="btn btn-primary"
-                    onClick={() => setShowPurchaseModal(true)}
-                    disabled={!paymentMethod}
-                  >
-                    Buy Credits
-                  </button>
-                </div>
-                <WalletDisplay />
-              </Card.Body>
-            </Card>
-          </div>
-
           {/* Billing Information Card */}
           <div className="col-12">
             <Card>
               <Card.Body>
                 <div className="d-flex justify-content-between align-items-center mb-3">
                   <h5 className="card-title mb-0">Billing Information</h5>
-                  <button 
-                    className="btn btn-link p-0"
-                    onClick={() => setShowManagePayments(true)}
-                  >
-                    <i className="bi bi-pencil"></i>
-                  </button>
                 </div>
                 {paymentMethod ? (
                   <div>
@@ -253,98 +206,13 @@ export default function BillingPage() {
               </Card.Body>
             </Card>
           </div>
-
-          {/* Payments History Card */}
-          <div className="col-12">
-            <Card>
-              <Card.Body>
-                <h5 className="card-title mb-3">Payments History</h5>
-                <p className="text-muted small mb-3">Keep track of your payments</p>
-                
-                <Nav variant="tabs" className="mb-3">
-                  <Nav.Item>
-                    <Nav.Link 
-                      active={activeTab === 'charges'} 
-                      onClick={() => setActiveTab('charges')}
-                    >
-                      Charges
-                    </Nav.Link>
-                  </Nav.Item>
-                  <Nav.Item>
-                    <Nav.Link 
-                      active={activeTab === 'invoices'} 
-                      onClick={() => setActiveTab('invoices')}
-                    >
-                      Invoices
-                    </Nav.Link>
-                  </Nav.Item>
-                </Nav>
-
-                <div className="table-responsive">
-                  <Table hover>
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Description</th>
-                        <th>Amount</th>
-                        <th>Status</th>
-                        <th>Card Details</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {charges.map((charge) => (
-                        <tr key={charge.id}>
-                          <td className="text-nowrap">
-                            {new Date(charge.created_at).toLocaleDateString()}
-                            <br />
-                            <small className="text-muted">
-                              {new Date(charge.created_at).toLocaleTimeString()}
-                            </small>
-                          </td>
-                          <td>{charge.description}</td>
-                          <td>${Math.abs(charge.amount).toFixed(2)}</td>
-                          <td>
-                            <span className="badge bg-success">Succeeded</span>
-                          </td>
-                          <td className="text-nowrap">
-                            {paymentMethod && 
-                              `${getCardBrandName(paymentMethod.card.brand)} ending ${paymentMethod.card.last4}`
-                            }
-                          </td>
-                          <td>
-                            <button className="btn btn-link btn-sm">
-                              <i className="bi bi-box-arrow-up-right"></i>
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                      {charges.length === 0 && (
-                        <tr>
-                          <td colSpan="6" className="text-center text-muted py-4">
-                            No charges found
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </Table>
-                </div>
-              </Card.Body>
-            </Card>
-          </div>
         </div>
-
-        {/* Modals */}
-        <CreditPurchaseModal
-          show={showPurchaseModal}
-          onHide={() => setShowPurchaseModal(false)}
-        />
 
         <ManagePaymentMethodsModal
           show={showManagePayments}
-          onClose={() => setShowManagePayments(false)}
-          onSuccess={handlePaymentMethodAdded}
+          onHide={() => setShowManagePayments(false)}
+          onPaymentMethodAdded={handlePaymentMethodAdded}
+          currentPaymentMethod={paymentMethod}
         />
       </div>
     </DashboardLayout>

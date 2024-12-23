@@ -23,7 +23,7 @@ const CARD_ELEMENT_OPTIONS = {
   hidePostalCode: true
 }
 
-function AddPaymentMethodForm({ onSuccess, onClose }) {
+function AddPaymentMethodForm({ onSuccess, onHide }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [cardComplete, setCardComplete] = useState(false)
@@ -190,7 +190,7 @@ function AddPaymentMethodForm({ onSuccess, onClose }) {
       window.location.reload()
       
       onSuccess?.()
-      onClose?.()
+      onHide?.()
 
     } catch (error) {
       console.error('=== PAYMENT METHOD FORM SUBMISSION ERROR ===')
@@ -313,7 +313,7 @@ function AddPaymentMethodForm({ onSuccess, onClose }) {
         <button 
           type="button" 
           className="btn btn-light" 
-          onClick={onClose}
+          onClick={onHide}
           disabled={loading}
         >
           Cancel
@@ -337,18 +337,15 @@ function AddPaymentMethodForm({ onSuccess, onClose }) {
   )
 }
 
-export default function AddPaymentMethodModal({ show, onClose, onSuccess }) {
+export default function AddPaymentMethodModal({ show, onHide, onSuccess }) {
   return (
-    <Modal show={show} onHide={onClose} centered>
+    <Modal show={show} onHide={onHide} centered>
       <Modal.Header closeButton>
         <Modal.Title>Add Payment Method</Modal.Title>
       </Modal.Header>
       <Modal.Body>
         <Elements stripe={stripePromise}>
-          <AddPaymentMethodForm 
-            onSuccess={onSuccess} 
-            onClose={onClose} 
-          />
+          <AddPaymentMethodForm onSuccess={onSuccess} onHide={onHide} />
         </Elements>
       </Modal.Body>
     </Modal>

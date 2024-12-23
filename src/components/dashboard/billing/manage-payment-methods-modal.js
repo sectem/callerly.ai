@@ -11,7 +11,7 @@ const globalStyles = `
   }
 `
 
-export default function ManagePaymentMethodsModal({ show, onClose, onSuccess }) {
+export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMethodAdded }) {
   const [paymentMethods, setPaymentMethods] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -89,7 +89,7 @@ export default function ManagePaymentMethodsModal({ show, onClose, onSuccess }) 
         .eq('id', methodId)
 
       await loadPaymentMethods()
-      onSuccess?.()
+      onPaymentMethodAdded?.()
     } catch (error) {
       console.error('Error setting default payment method:', error)
       setError('Failed to set default payment method')
@@ -107,7 +107,7 @@ export default function ManagePaymentMethodsModal({ show, onClose, onSuccess }) 
         .eq('id', methodId)
 
       await loadPaymentMethods()
-      onSuccess?.()
+      onPaymentMethodAdded?.()
     } catch (error) {
       console.error('Error deleting payment method:', error)
       setError('Failed to delete payment method')
@@ -117,13 +117,13 @@ export default function ManagePaymentMethodsModal({ show, onClose, onSuccess }) 
   const handleAddCardSuccess = async () => {
     setShowAddCard(false)
     await loadPaymentMethods()
-    onSuccess?.()
+    onPaymentMethodAdded?.()
   }
 
   return (
     <>
       <style>{globalStyles}</style>
-      <Modal show={show} onHide={onClose} centered size="lg">
+      <Modal show={show} onHide={onHide} centered size="lg">
         <Modal.Header closeButton>
           <Modal.Title>Manage Payment Methods</Modal.Title>
         </Modal.Header>
@@ -209,7 +209,7 @@ export default function ManagePaymentMethodsModal({ show, onClose, onSuccess }) 
 
       <AddPaymentMethodModal
         show={showAddCard}
-        onClose={() => setShowAddCard(false)}
+        onHide={() => setShowAddCard(false)}
         onSuccess={handleAddCardSuccess}
       />
     </>

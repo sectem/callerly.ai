@@ -44,30 +44,6 @@ CREATE TABLE IF NOT EXISTS public.phone_numbers (
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Create wallet_transactions table
-CREATE TABLE IF NOT EXISTS public.wallet_transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) NOT NULL,
-    amount INTEGER NOT NULL,
-    transaction_type TEXT NOT NULL CHECK (transaction_type IN ('purchase', 'usage', 'refund', 'credit', 'debit', 'initial')),
-    description TEXT,
-    stripe_payment_intent_id TEXT,
-    stripe_refund_id TEXT,
-    call_duration INTEGER,
-    agent_id UUID REFERENCES public.vapi_agents(id),
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
--- Create messages table
-CREATE TABLE IF NOT EXISTS public.messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES auth.users(id) NOT NULL,
-    agent_id UUID REFERENCES public.vapi_agents(id) NOT NULL,
-    content TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
-);
-
 -- Create subscriptions table
 CREATE TABLE IF NOT EXISTS public.subscriptions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -158,93 +134,6 @@ CREATE TRIGGER update_subscriptions_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION public.update_updated_at_column();
 
--- Function to add credits to wallet
-CREATE OR REPLACE FUNCTION public.add_wallet_credits(
-    p_user_id UUID,
-    p_amount INTEGER,
-    p_transaction_type TEXT,
-    p_description TEXT,
-    p_stripe_payment_intent_id TEXT DEFAULT NULL
-)
-RETURNS void AS $$
-BEGIN
-    INSERT INTO public.wallet_transactions (
-        user_id,
-        amount,
-        transaction_type,
-        description,
-        stripe_payment_intent_id
-    ) VALUES (
-        p_user_id,
-        p_amount,
-        p_transaction_type,
-        p_description,
-        p_stripe_payment_intent_id
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Function to deduct credits
-CREATE OR REPLACE FUNCTION public.deduct_wallet_credits(
-    p_user_id UUID,
-    p_amount INTEGER,
-    p_description TEXT,
-    p_agent_id UUID DEFAULT NULL
-)
-RETURNS INTEGER AS $$
-DECLARE
-    v_current_balance INTEGER;
-BEGIN
-    -- Calculate current balance
-    SELECT COALESCE(SUM(
-        CASE 
-            WHEN transaction_type IN ('credit', 'initial', 'refund', 'purchase') THEN amount 
-            WHEN transaction_type IN ('debit', 'usage') THEN -amount
-        END
-    ), 0)
-    INTO v_current_balance
-    FROM public.wallet_transactions
-    WHERE user_id = p_user_id;
-
-    -- Check if user has enough credits
-    IF v_current_balance < p_amount THEN
-        RETURN -1; -- Insufficient credits
-    END IF;
-
-    -- Add debit transaction
-    INSERT INTO public.wallet_transactions (
-        user_id,
-        amount,
-        transaction_type,
-        description,
-        agent_id
-    ) VALUES (
-        p_user_id,
-        p_amount,
-        'debit',
-        p_description,
-        p_agent_id
-    );
-
-    RETURN v_current_balance - p_amount;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Function to get wallet balance
-CREATE OR REPLACE FUNCTION public.get_wallet_balance(p_user_id UUID)
-RETURNS INTEGER AS $$
-BEGIN
-    RETURN COALESCE(SUM(
-        CASE 
-            WHEN transaction_type IN ('credit', 'initial', 'refund', 'purchase') THEN amount 
-            WHEN transaction_type IN ('debit', 'usage') THEN -amount
-        END
-    ), 0)
-    FROM public.wallet_transactions
-    WHERE user_id = p_user_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 -- Drop existing policies first to avoid conflicts
 DROP POLICY IF EXISTS "Users can view their own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can create their own profile" ON public.profiles;
@@ -253,12 +142,9 @@ DROP POLICY IF EXISTS "Enable insert for authenticated users only" ON public.pro
 DROP POLICY IF EXISTS "Enable update for users based on id" ON public.profiles;
 DROP POLICY IF EXISTS "Enable all access for authenticated users" ON public.profiles;
 DROP POLICY IF EXISTS "Users can view and update their own profile" ON public.profiles;
-DROP POLICY IF EXISTS "Users can view their own wallet transactions" ON public.wallet_transactions;
-DROP POLICY IF EXISTS "Users can manage their own wallet transactions" ON public.wallet_transactions;
 
 -- Enable RLS for tables
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.wallet_transactions ENABLE ROW LEVEL SECURITY;
 
 -- Create profile policies
 CREATE POLICY "Users can view their own profile"
@@ -277,20 +163,8 @@ CREATE POLICY "Users can update their own profile"
     USING (id = auth.uid())
     WITH CHECK (id = auth.uid());
 
--- Create wallet transaction policies
-CREATE POLICY "Users can view their own wallet transactions"
-    ON public.wallet_transactions
-    FOR SELECT
-    USING (user_id = auth.uid());
-
-CREATE POLICY "Users can manage their own wallet transactions"
-    ON public.wallet_transactions
-    FOR ALL
-    USING (user_id = auth.uid());
-
 -- Grant permissions
 GRANT ALL ON public.profiles TO authenticated;
-GRANT ALL ON public.wallet_transactions TO authenticated;
 
 -- Enable RLS
 ALTER TABLE public.payment_methods ENABLE ROW LEVEL SECURITY;

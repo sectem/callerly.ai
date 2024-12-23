@@ -97,8 +97,8 @@ function SignUpFormContent() {
           data: {
             first_name: formData.firstName,
             last_name: formData.lastName,
-            company: formData.companyName,
-            phone: formData.phoneNumber,
+            company_name: formData.companyName,
+            phone_number: formData.phoneNumber,
             role: formData.role
           }
         }
