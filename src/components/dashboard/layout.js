@@ -16,46 +16,26 @@ import Image from 'next/image';
 import { useAuth, supabase } from '@/context/auth-context';
 import styles from '@/styles/dashboard.module.css';
 
-const NAVIGATION_ITEMS = [
+const menuItems = [
   {
     label: 'Dashboard',
     href: '/dashboard',
-    icon: 'bi-grid'
+    icon: 'bi-speedometer2'
   },
   {
-    label: 'AI Agents',
+    label: 'Agents',
     href: '/dashboard/agents',
     icon: 'bi-robot'
-  },
-  {
-    label: 'Appointments',
-    href: '/dashboard/appointments',
-    icon: 'bi-calendar'
-  },
-  {
-    label: 'Contacts',
-    href: '/dashboard/contacts',
-    icon: 'bi-person'
-  },
-  {
-    label: 'Reports',
-    href: '/dashboard/reports',
-    icon: 'bi-graph-up'
-  },
-  {
-    label: 'Scripts',
-    href: '/dashboard/script',
-    icon: 'bi-file-text'
-  },
-  {
-    label: 'Billing',
-    href: '/dashboard/billing',
-    icon: 'bi-credit-card'
   },
   {
     label: 'Settings',
     href: '/dashboard/settings',
     icon: 'bi-gear'
+  },
+  {
+    label: 'Billing',
+    href: '/dashboard/billing',
+    icon: 'bi-credit-card'
   }
 ];
 
@@ -89,7 +69,7 @@ export default function DashboardLayout({ children }) {
   const handleSignOut = async () => {
     try {
       await signOut();
-      router.push('/login');
+      router.push('/signin');
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -144,7 +124,7 @@ export default function DashboardLayout({ children }) {
         </div>
 
         <nav className={styles.sidebarNav}>
-          {NAVIGATION_ITEMS.map((item) => (
+          {menuItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -158,7 +138,7 @@ export default function DashboardLayout({ children }) {
           ))}
 
           <button
-            onClick={handleSignOut}
+            onClick={()=>handleSignOut()}
             className={`${styles.navItem} ${styles.signOutBtn}`}
             style={{ width: '100%', border: 'none', background: 'none', textAlign: 'left', marginTop: 'auto' }}
           >

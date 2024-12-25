@@ -18,12 +18,12 @@ export default function SignInForm() {
   const router = useRouter()
   const { redirect } = router.query
 
-  // Only redirect if remember me is checked
+  // Redirect when user is authenticated
   useEffect(() => {
-    if (user && formData.rememberMe) {
+    if (user) {
       router.push(redirect || '/dashboard')
     }
-  }, [user, router, redirect, formData.rememberMe])
+  }, [user, router, redirect])
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -67,15 +67,12 @@ export default function SignInForm() {
         email: formData.email,
         password: formData.password,
         options: {
-          persistSession: true // Always persist the session
+          persistSession: formData.rememberMe // Only persist session if remember me is checked
         }
       })
       if (error) throw error
       
-      // Only redirect if remember me is checked
-      if (formData.rememberMe) {
-        router.push(redirect || '/dashboard')
-      }
+      // Redirect will happen automatically through the useEffect above
     } catch (error) {
       console.error('Error signing in:', error)
       setError(error.message)

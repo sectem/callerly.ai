@@ -116,7 +116,7 @@ export default function AgentsPage() {
     if (authLoading) return;
     
     if (!user) {
-      router.push('/login');
+      router.push('/signin');
       return;
     }
 
@@ -166,17 +166,17 @@ export default function AgentsPage() {
           const script = agentData.scripts?.[0];
           if (script) {
             setScriptContent(script.script_content || '');
-            setFirstMessage(script.first_message || 'Hi, this is your AI assistant. How can I help you today?');
-            setEndCallMessage(script.end_call_message || 'Thank you for your time. Have a great day!');
-            setVoicemailMessage(script.voicemail_message || 'Hi, this is your AI assistant. I\'m sorry I missed your call. Please call back at your convenience.');
+            setFirstMessage(script.first_message || '');
+            setEndCallMessage(script.end_call_message || '');
+            setVoicemailMessage(script.voicemail_message || '');
           }
         } else {
-          // Set default values if no agent exists
+          // Set empty values if no agent exists
           setAgent(null);
           setScriptContent('');
-          setFirstMessage('Hi, this is your AI assistant. How can I help you today?');
-          setEndCallMessage('Thank you for your time. Have a great day!');
-          setVoicemailMessage('Hi, this is your AI assistant. I\'m sorry I missed your call. Please call back at your convenience.');
+          setFirstMessage('');
+          setEndCallMessage('');
+          setVoicemailMessage('');
         }
       } catch (error) {
         console.error('Error loading agent data:', error);
@@ -228,7 +228,10 @@ export default function AgentsPage() {
         },
         body: JSON.stringify({
           phoneNumber: userPhoneNumber,
-          scriptContent
+          scriptContent,
+          firstMessage,
+          endCallMessage,
+          voicemailMessage
         }),
       });
 
@@ -257,62 +260,43 @@ export default function AgentsPage() {
 
         if (createError) throw createError;
         agentId = newAgent.id;
-      } else {
-        // Update existing VAPI agent
-        const { error: updateError } = await supabase
-          .from('vapi_agents')
-          .update({
-            name: userPhoneNumber,
-            vapi_agent_id: vapiData.id,
-            voice_id: vapiData.voice_id,
-            voice_provider: vapiData.voice_provider,
-            is_active: true
-          })
-          .eq('id', agentId);
-
-        if (updateError) throw updateError;
       }
 
       // Create or update the script
-      const { error: scriptError } = await supabase
-        .from('scripts')
-        .upsert({
-          agent_id: agentId,
-          name: userPhoneNumber,
-          script_content: scriptContent,
-          first_message: firstMessage,
-          end_call_message: endCallMessage,
-          voicemail_message: voicemailMessage
-        }, {
-          onConflict: 'agent_id'
-        });
+      const scriptData = {
+        vapi_agent_id: agentId,
+        name: 'Main Script',
+        script_content: scriptContent,
+        first_message: firstMessage,
+        end_call_message: endCallMessage,
+        voicemail_message: voicemailMessage
+      };
 
-      if (scriptError) throw scriptError;
+      if (agent?.scripts?.[0]?.id) {
+        // Update existing script
+        const { error: scriptError } = await supabase
+          .from('scripts')
+          .update(scriptData)
+          .eq('id', agent.scripts[0].id);
 
-      // Reload the complete agent data
-      const { data: updatedAgent, error: loadError } = await supabase
-        .from('vapi_agents')
-        .select(`
-          id,
-          vapi_agent_id,
-          voice_id,
-          voice_provider,
-          name,
-          is_active,
-          scripts (
-            id,
-            content
-          )
-        `)
-        .eq('id', agentId)
-        .single();
+        if (scriptError) throw scriptError;
+      } else {
+        // Create new script
+        const { error: scriptError } = await supabase
+          .from('scripts')
+          .insert(scriptData);
 
-      if (loadError) throw loadError;
-      setAgent(updatedAgent);
+        if (scriptError) throw scriptError;
+      }
 
+      // Show success message
+      alert('Agent configuration saved successfully!');
+      
+      // Refresh the page to show updated data
+      window.location.reload();
     } catch (error) {
       console.error('Error saving agent:', error);
-      setError(error.message);
+      setError(error.message || 'Failed to save agent configuration');
     } finally {
       setSaving(false);
     }
@@ -321,73 +305,116 @@ export default function AgentsPage() {
   return (
     <DashboardLayout>
       <div style={customStyles.pageContainer}>
-        <h1 style={customStyles.title}>Configure Your AI Agent</h1>
-
-        {error && (
-          <Alert 
-            variant="danger" 
-            onClose={() => setError(null)} 
-            dismissible
-            style={customStyles.alert}
-          >
-            {error}
-          </Alert>
-        )}
+        <h1 style={customStyles.title}>Configure AI Agent</h1>
 
         {!userPhoneNumber && (
           <div style={customStyles.phoneAlert}>
             <i className="bi bi-exclamation-circle"></i>
-            Please add a phone number in the settings page before creating an agent.
+            <span>Please add a phone number in the settings page before configuring your AI agent.</span>
           </div>
         )}
 
         {userPhoneNumber && (
           <div style={customStyles.phoneAlert}>
             <i className="bi bi-phone"></i>
-            Configuring agent for: <strong>{userPhoneNumber}</strong>
+            <span>Configuring script for phone number: <strong>{userPhoneNumber}</strong></span>
           </div>
         )}
 
-        <div style={customStyles.formContainer}>
-          <Form onSubmit={handleSaveAgent}>
-            <div style={customStyles.section}>
-              <h2 style={customStyles.sectionTitle}>Agent Messages</h2>
-              
-              <Form.Group className="mb-4">
-                <Form.Label style={customStyles.label}>Script Content</Form.Label>
-                <Form.Control
-                  as="textarea"
-                  rows={10}
-                  value={scriptContent}
-                  onChange={(e) => setScriptContent(e.target.value)}
-                  required
-                  placeholder="Enter the script content that defines your agent's behavior and knowledge"
-                  style={customStyles.textarea}
-                />
-                <Form.Text style={customStyles.helpText}>
-                  This is the main script content that defines your agent's behavior and knowledge.
-                </Form.Text>
-              </Form.Group>
-            </div>
+        {error && (
+          <Alert variant="danger" style={customStyles.alert}>
+            {error}
+          </Alert>
+        )}
 
-            <div className="d-flex justify-content-end mt-4">
-              <Button 
-                type="submit" 
-                disabled={saving || !userPhoneNumber}
-                style={customStyles.button}
-              >
-                {saving ? (
-                  <>
-                    <Spinner size="sm" className="me-2" /> 
-                    {agent ? 'Updating...' : 'Creating...'}
-                  </>
-                ) : (
-                  agent ? 'Update Agent' : 'Create Agent'
-                )}
-              </Button>
-            </div>
-          </Form>
-        </div>
+        <Form onSubmit={handleSaveAgent}>
+          <div style={customStyles.section}>
+            <h2 style={customStyles.sectionTitle}>Agent Configuration</h2>
+            
+            <Form.Group className="mb-4">
+              <Form.Label style={customStyles.label}>First Message</Form.Label>
+              <Form.Control
+                type="text"
+                value={firstMessage}
+                onChange={(e) => setFirstMessage(e.target.value)}
+                placeholder="Enter the first message your agent will say..."
+                style={customStyles.input}
+                required
+              />
+              <Form.Text style={customStyles.helpText}>
+                This is the first message your AI agent will say when answering a call.
+              </Form.Text>
+            </Form.Group>
+
+            <Form.Group className="mb-4">
+              <Form.Label style={customStyles.label}>Script Content</Form.Label>
+              <Form.Control
+                as="textarea"
+                rows={10}
+                value={scriptContent}
+                onChange={(e) => setScriptContent(e.target.value)}
+                placeholder="Enter your script content here..."
+                style={customStyles.textarea}
+                required
+              />
+              <Form.Text style={customStyles.helpText}>
+                This is the main script your AI agent will use during conversations.
+              </Form.Text>
+            </Form.Group>
+
+            <Form.Group className="mb-4">
+              <Form.Label style={customStyles.label}>End Call Message</Form.Label>
+              <Form.Control
+                type="text"
+                value={endCallMessage}
+                onChange={(e) => setEndCallMessage(e.target.value)}
+                placeholder="Enter the message your agent will say when ending a call..."
+                style={customStyles.input}
+                required
+              />
+              <Form.Text style={customStyles.helpText}>
+                This message will be used when your AI agent needs to end the call.
+              </Form.Text>
+            </Form.Group>
+
+            <Form.Group className="mb-4">
+              <Form.Label style={customStyles.label}>Voicemail Message</Form.Label>
+              <Form.Control
+                type="text"
+                value={voicemailMessage}
+                onChange={(e) => setVoicemailMessage(e.target.value)}
+                placeholder="Enter the voicemail message..."
+                style={customStyles.input}
+                required
+              />
+              <Form.Text style={customStyles.helpText}>
+                This message will be used when leaving a voicemail.
+              </Form.Text>
+            </Form.Group>
+          </div>
+
+          <Button
+            type="submit"
+            style={customStyles.button}
+            disabled={saving || !userPhoneNumber}
+          >
+            {saving ? (
+              <>
+                <Spinner
+                  as="span"
+                  animation="border"
+                  size="sm"
+                  role="status"
+                  aria-hidden="true"
+                  className="me-2"
+                />
+                Saving...
+              </>
+            ) : (
+              'Save Configuration'
+            )}
+          </Button>
+        </Form>
       </div>
     </DashboardLayout>
   );

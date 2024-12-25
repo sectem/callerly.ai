@@ -34,10 +34,8 @@ export default function Dashboard() {
   const [matchType, setMatchType] = useState('contains');
 
   useEffect(() => {
-    if (authLoading) return;
-    
     if (!user) {
-      router.push('/login');
+      router.push('/signin');
       return;
     }
 
@@ -88,7 +86,7 @@ export default function Dashboard() {
     };
 
     loadData();
-  }, [user, authLoading, router]);
+  }, [user, router]);
 
   const handleSearch = async () => {
     setLoadingNumbers(true);
@@ -184,7 +182,11 @@ export default function Dashboard() {
     setMatchType('contains');
   };
 
-  if (authLoading || loading) {
+  if (!user) {
+    return null;
+  }
+
+  if (loading) {
     return (
       <DashboardLayout>
         <div className={styles.loadingState}>
@@ -192,10 +194,6 @@ export default function Dashboard() {
         </div>
       </DashboardLayout>
     );
-  }
-
-  if (!user) {
-    return null;
   }
 
   return (

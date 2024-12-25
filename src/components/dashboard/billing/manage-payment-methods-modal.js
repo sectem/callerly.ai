@@ -16,6 +16,7 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showAddCard, setShowAddCard] = useState(false)
+  const [actionInProgress, setActionInProgress] = useState(null) // Track which card is being processed
 
   useEffect(() => {
     if (show) {
@@ -91,6 +92,8 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
   const handleSetDefault = async (methodId) => {
     try {
       setError(null)
+      setActionInProgress(`set-default-${methodId}`) // Set loading state for this specific action
+
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         setError('User authentication required')
@@ -131,18 +134,25 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
         throw new Error(errorData.error || 'Failed to set default payment method')
       }
 
+      // Wait a moment to ensure Stripe and database are in sync
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
       // Reload payment methods to get updated state
       await loadPaymentMethods()
       onPaymentMethodAdded?.()
     } catch (error) {
       console.error('Error setting default payment method:', error)
       setError(error.message || 'Failed to set default payment method')
+    } finally {
+      setActionInProgress(null) // Clear loading state
     }
   }
 
   const handleDelete = async (methodId) => {
     try {
       setError(null)
+      setActionInProgress(`delete-${methodId}`) // Set loading state for this specific action
+
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         setError('User authentication required')
@@ -187,12 +197,17 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
         throw new Error(errorData.error || 'Failed to delete payment method')
       }
 
+      // Wait a moment to ensure Stripe and database are in sync
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
       // Reload payment methods to get updated state
       await loadPaymentMethods()
       onPaymentMethodAdded?.()
     } catch (error) {
       console.error('Error deleting payment method:', error)
       setError(error.message || 'Failed to delete payment method')
+    } finally {
+      setActionInProgress(null) // Clear loading state
     }
   }
 
@@ -257,32 +272,42 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
                             </div>
                           </div>
                           {!method.is_default && (
-                            <Dropdown align="end">
-                              <Dropdown.Toggle 
-                                variant="link" 
-                                className="p-0 text-dark d-flex align-items-center btn-no-caret" 
-                                style={{ 
-                                  boxShadow: 'none',
-                                  border: 'none',
-                                  background: 'none'
-                                }}
-                              >
-                                <i className="bi bi-three-dots-vertical"></i>
-                              </Dropdown.Toggle>
-                              <Dropdown.Menu>
-                                <Dropdown.Item onClick={() => handleSetDefault(method.id)}>
-                                  <i className="bi bi-check-circle me-2"></i>
-                                  Set as Primary
-                                </Dropdown.Item>
-                                <Dropdown.Item 
-                                  onClick={() => handleDelete(method.id)}
-                                  className="text-danger"
+                            actionInProgress === `set-default-${method.id}` ? (
+                              <div className="spinner-border spinner-border-sm text-primary" role="status">
+                                <span className="visually-hidden">Loading...</span>
+                              </div>
+                            ) : actionInProgress === `delete-${method.id}` ? (
+                              <div className="spinner-border spinner-border-sm text-danger" role="status">
+                                <span className="visually-hidden">Loading...</span>
+                              </div>
+                            ) : (
+                              <Dropdown align="end">
+                                <Dropdown.Toggle 
+                                  variant="link" 
+                                  className="p-0 text-dark d-flex align-items-center btn-no-caret" 
+                                  style={{ 
+                                    boxShadow: 'none',
+                                    border: 'none',
+                                    background: 'none'
+                                  }}
                                 >
-                                  <i className="bi bi-trash me-2"></i>
-                                  Delete Card
-                                </Dropdown.Item>
-                              </Dropdown.Menu>
-                            </Dropdown>
+                                  <i className="bi bi-three-dots-vertical"></i>
+                                </Dropdown.Toggle>
+                                <Dropdown.Menu>
+                                  <Dropdown.Item onClick={() => handleSetDefault(method.id)}>
+                                    <i className="bi bi-check-circle me-2"></i>
+                                    Set as Primary
+                                  </Dropdown.Item>
+                                  <Dropdown.Item 
+                                    onClick={() => handleDelete(method.id)}
+                                    className="text-danger"
+                                  >
+                                    <i className="bi bi-trash me-2"></i>
+                                    Delete Card
+                                  </Dropdown.Item>
+                                </Dropdown.Menu>
+                              </Dropdown>
+                            )
                           )}
                         </div>
                       </div>
@@ -296,7 +321,7 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
                   type="button"
                   className="btn btn-primary"
                   onClick={() => setShowAddCard(true)}
-                  disabled={loading}
+                  disabled={loading || actionInProgress}
                 >
                   <i className="bi bi-plus-circle me-2"></i>
                   Add New Card

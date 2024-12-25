@@ -18,7 +18,6 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [initialized, setInitialized] = useState(false)
 
   const fetchUserData = async (user) => {
     if (!user) return
@@ -98,13 +97,14 @@ export function AuthProvider({ children }) {
           await fetchUserData(session.user)
         } else {
           console.log('No existing session found')
+          setUser(null)
         }
       } catch (error) {
         console.error('Error in initializeAuth:', error)
+        setUser(null)
       } finally {
         if (mounted) {
           setLoading(false)
-          setInitialized(true)
         }
       }
     }
@@ -135,9 +135,15 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  // Don't render children until auth is initialized
-  if (!initialized) {
-    return <div>Loading...</div>
+  // Show a minimal loading state
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center min-vh-100">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </div>
+      </div>
+    )
   }
 
   const value = {
