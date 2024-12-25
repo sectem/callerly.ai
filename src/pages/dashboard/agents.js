@@ -106,17 +106,18 @@ export default function AgentsPage() {
   const [scriptContent, setScriptContent] = useState('');
   const [firstMessage, setFirstMessage] = useState('');
   const [endCallMessage, setEndCallMessage] = useState('');
-  const [voicemailMessage, setVoicemailMessage] = useState('');
-  const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
 
   const router = useRouter();
 
   useEffect(() => {
-    if (authLoading) return;
-    
+    if (authLoading) {
+      return;
+    }
+
     if (!user) {
-      router.push('/signin');
+      router.push('/auth/login');
       return;
     }
 
@@ -130,6 +131,7 @@ export default function AgentsPage() {
           .eq('is_active', true)
           .single();
 
+        console.log('Phone data:', phoneData);
         if (phoneError && phoneError.code !== 'PGRST116') {
           console.error('Phone number error:', phoneError);
           throw phoneError;
@@ -150,25 +152,26 @@ export default function AgentsPage() {
             is_active,
             scripts (
               id,
-              name,
               script_content,
               first_message,
-              end_call_message,
-              voicemail_message
+              end_call_message
             )
           `)
           .eq('user_id', user.id)
           .single();
 
+        console.log('Agent data:', agentData);
+        console.log('Agent error:', agentError);
+
         // If agent exists, load its data
         if (agentData) {
           setAgent(agentData);
           const script = agentData.scripts?.[0];
+          console.log('Script data:', script);
           if (script) {
             setScriptContent(script.script_content || '');
             setFirstMessage(script.first_message || '');
             setEndCallMessage(script.end_call_message || '');
-            setVoicemailMessage(script.voicemail_message || '');
           }
         } else {
           // Set empty values if no agent exists
@@ -176,7 +179,6 @@ export default function AgentsPage() {
           setScriptContent('');
           setFirstMessage('');
           setEndCallMessage('');
-          setVoicemailMessage('');
         }
       } catch (error) {
         console.error('Error loading agent data:', error);
@@ -219,84 +221,46 @@ export default function AgentsPage() {
     }
 
     try {
-      // First, create or update the agent in VAPI
-      const vapiResponse = await fetch('/api/vapi/create-agent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-        },
-        body: JSON.stringify({
-          phoneNumber: userPhoneNumber,
-          scriptContent,
-          firstMessage,
-          endCallMessage,
-          voicemailMessage
-        }),
-      });
-
-      const vapiData = await vapiResponse.json();
-      if (!vapiResponse.ok) {
-        throw new Error(vapiData.error || 'Failed to create VAPI agent');
-      }
-
-      // Then, create or update the agent in our database
-      let agentId = agent?.id;
-      
-      if (!agentId) {
-        // Create new VAPI agent
-        const { data: newAgent, error: createError } = await supabase
-          .from('vapi_agents')
-          .insert({
-            user_id: user.id,
-            name: userPhoneNumber,
-            vapi_agent_id: vapiData.id,
-            voice_id: vapiData.voice_id,
-            voice_provider: vapiData.voice_provider,
-            is_active: true
-          })
-          .select()
-          .single();
-
-        if (createError) throw createError;
-        agentId = newAgent.id;
-      }
-
-      // Create or update the script
-      const scriptData = {
-        vapi_agent_id: agentId,
-        name: 'Main Script',
-        script_content: scriptContent,
-        first_message: firstMessage,
-        end_call_message: endCallMessage,
-        voicemail_message: voicemailMessage
+      const functionPayload = {
+        action: agent ? 'update_agent' : 'create_agent',
+        phoneNumber: userPhoneNumber,
+        scriptContent,
+        firstMessage,
+        endCallMessage,
+        userId: user.id
       };
 
-      if (agent?.scripts?.[0]?.id) {
-        // Update existing script
-        const { error: scriptError } = await supabase
-          .from('scripts')
-          .update(scriptData)
-          .eq('id', agent.scripts[0].id);
+      // Add additional fields for update
+      if (agent) {
+        functionPayload.agentId = agent.id;
+        functionPayload.vapiAgentId = agent.vapi_agent_id;
+      }
+      
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/vapi`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify(functionPayload)
+        }
+      );
 
-        if (scriptError) throw scriptError;
-      } else {
-        // Create new script
-        const { error: scriptError } = await supabase
-          .from('scripts')
-          .insert(scriptData);
+      const vapiData = await response.json();
 
-        if (scriptError) throw scriptError;
+      if (!response.ok) {
+        throw new Error(vapiData.error || 'Failed to save agent');
       }
 
-      // Show success message
-      alert('Agent configuration saved successfully!');
+      alert(agent ? 'Agent updated successfully!' : 'Agent added successfully!');
       
       // Refresh the page to show updated data
       window.location.reload();
     } catch (error) {
-      console.error('Error saving agent:', error);
-      setError(error.message || 'Failed to save agent configuration');
+      console.error('Error in handleSaveAgent:', error);
+      setError(error.message || 'Failed to save agent. Please check the console for details.');
     } finally {
       setSaving(false);
     }
@@ -376,21 +340,6 @@ export default function AgentsPage() {
                 This message will be used when your AI agent needs to end the call.
               </Form.Text>
             </Form.Group>
-
-            <Form.Group className="mb-4">
-              <Form.Label style={customStyles.label}>Voicemail Message</Form.Label>
-              <Form.Control
-                type="text"
-                value={voicemailMessage}
-                onChange={(e) => setVoicemailMessage(e.target.value)}
-                placeholder="Enter the voicemail message..."
-                style={customStyles.input}
-                required
-              />
-              <Form.Text style={customStyles.helpText}>
-                This message will be used when leaving a voicemail.
-              </Form.Text>
-            </Form.Group>
           </div>
 
           <Button
@@ -408,10 +357,10 @@ export default function AgentsPage() {
                   aria-hidden="true"
                   className="me-2"
                 />
-                Saving...
+                {agent ? 'Updating...' : 'Adding...'}
               </>
             ) : (
-              'Save Configuration'
+              agent ? 'Update Agent' : 'Add Agent'
             )}
           </Button>
         </Form>

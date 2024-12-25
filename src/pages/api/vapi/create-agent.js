@@ -25,20 +25,26 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { phoneNumber, scriptContent } = req.body;
+    const { phoneNumber, scriptContent, firstMessage, endCallMessage, voicemailMessage } = req.body;
 
     // Create VAPI agent with phone number
     const vapiAgent = await createVapiAgentWithPhone(
       phoneNumber, // Use phone number as name
       phoneNumber,
-      scriptContent
+      scriptContent,
+      {
+        firstMessage,
+        endCallMessage,
+        voicemailMessage
+      }
     );
 
     // Return the VAPI agent ID and other details
     return res.status(200).json({
       id: vapiAgent.id, // This is the vapi_agent_id we need to save
       voice_id: vapiAgent.voice?.voiceId || 'default',
-      voice_provider: vapiAgent.voice?.provider || 'elevenlabs'
+      voice_provider: vapiAgent.voice?.provider || 'elevenlabs',
+      status: 'success'
     });
   } catch (error) {
     console.error('Error in create-agent:', error);

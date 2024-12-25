@@ -38,7 +38,7 @@ export default function ConfirmEmail() {
               </p>
               <p className="mb-0">
                 Already verified?{' '}
-                <Link href="/login" className="text-decoration-none">
+                <Link href="/signin" className="text-decoration-none">
                   Log in
                 </Link>
               </p>
