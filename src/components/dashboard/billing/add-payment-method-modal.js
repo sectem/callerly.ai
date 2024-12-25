@@ -1,9 +1,9 @@
 'use client'
 import { useState } from 'react'
-import { Modal } from 'react-bootstrap'
+import { Modal, Form, Button } from 'react-bootstrap'
+import { useAuth, supabase } from '@/context/auth-context'
 import { loadStripe } from '@stripe/stripe-js'
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { CardElement, Elements, useStripe, useElements } from '@stripe/react-stripe-js'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
 
@@ -40,7 +40,7 @@ function AddPaymentMethodForm({ onSuccess, onHide }) {
   })
   const stripe = useStripe()
   const elements = useElements()
-  const supabase = createClientComponentClient()
+  const { user } = useAuth()
 
   const handleCardChange = (event) => {
     setError(null)
@@ -69,74 +69,66 @@ function AddPaymentMethodForm({ onSuccess, onHide }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     console.log('=== PAYMENT METHOD FORM SUBMISSION STARTED ===')
-    
-    if (!stripe || !elements || !cardComplete) {
-      console.log('Form validation failed:', { stripe: !!stripe, elements: !!elements, cardComplete })
-      if (!cardComplete) {
-        setError('Please complete card details')
-      }
-      return
-    }
-
-    // Validate billing details
-    if (!billingDetails.name || !billingDetails.address.line1 || 
-        !billingDetails.address.city || !billingDetails.address.state || 
-        !billingDetails.address.postal_code) {
-      setError('Please fill in all required billing details')
-      return
-    }
 
     try {
       setError(null)
       setLoading(true)
 
-      // Get current user
-      console.log('Getting current user...')
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
-      if (authError) {
-        console.error('Auth error:', authError)
-        throw new Error('Authentication failed')
-      }
+      const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
-        console.error('No user found')
-        throw new Error('Not authenticated')
+        throw new Error('User authentication required')
       }
-      console.log('User retrieved:', { id: user.id, email: user.email })
 
+      if (!stripe || !elements) {
+        throw new Error('Stripe not initialized')
+      }
+
+      const card = elements.getElement(CardElement)
+      if (!card) {
+        throw new Error('Card element not found')
+      }
+
+      // Create payment method in Stripe
       console.log('Creating Stripe payment method...')
-      // Create payment method with billing details
       const { error: stripeError, paymentMethod } = await stripe.createPaymentMethod({
         type: 'card',
-        card: elements.getElement(CardElement),
-        billing_details: {
-          name: billingDetails.name,
-          email: user.email,
-          address: billingDetails.address
-        }
+        card,
+        billing_details: billingDetails
       })
 
       if (stripeError) {
-        console.error('Stripe payment method creation error:', stripeError)
+        console.error('Stripe error:', stripeError)
         throw new Error(stripeError.message)
       }
 
       console.log('Payment method created:', paymentMethod.id)
 
-      // Create or update Stripe customer
+      // Create customer and save payment method using Edge Function
       console.log('Calling create-customer API...')
-      const response = await fetch('/api/stripe/create-customer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email,
-          payment_method: paymentMethod.id,
-          user_id: user.id,
-          billing_details: {
-            ...billingDetails,
-            email: user.email
-          }
-        })
-      })
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-payment`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            type: 'create_customer',
+            payment_method: paymentMethod.id,
+            user_id: user.id,
+            billing_details: {
+              ...billingDetails,
+              card: {
+                brand: paymentMethod.card.brand,
+                last4: paymentMethod.card.last4,
+                exp_month: paymentMethod.card.exp_month,
+                exp_year: paymentMethod.card.exp_year
+              }
+            }
+          })
+        }
+      )
 
       console.log('Create customer API response status:', response.status)
       const customerData = await response.json()
@@ -147,51 +139,14 @@ function AddPaymentMethodForm({ onSuccess, onHide }) {
         throw new Error(customerData.error || 'Failed to save payment method')
       }
 
-      console.log('Customer created/updated successfully:', customerData)
-
-      // Save payment method details to database
-      const { error: insertError } = await supabase
-        .from('payment_methods')
-        .insert({
-          user_id: user.id,
-          stripe_customer_id: customerData.customer_id,
-          payment_method_id: paymentMethod.id,
-          card_brand: paymentMethod.card.brand,
-          card_last4: paymentMethod.card.last4,
-          card_exp_month: paymentMethod.card.exp_month,
-          card_exp_year: paymentMethod.card.exp_year,
-          billing_name: billingDetails.name,
-          billing_email: user.email,
-          billing_address_line1: billingDetails.address.line1,
-          billing_address_line2: billingDetails.address.line2,
-          billing_city: billingDetails.address.city,
-          billing_state: billingDetails.address.state,
-          billing_postal_code: billingDetails.address.postal_code,
-          billing_country: billingDetails.address.country,
-          is_default: true
-        })
-
-      if (insertError) {
-        console.error('Failed to save payment method to database:', insertError)
-        throw new Error('Failed to save payment method details')
-      }
-
-      // Update any existing payment methods to not be default
-      await supabase
-        .from('payment_methods')
-        .update({ is_default: false })
-        .eq('user_id', user.id)
-        .neq('payment_method_id', paymentMethod.id)
-
       console.log('Payment method saved successfully to database')
       console.log('=== PAYMENT METHOD FORM SUBMISSION COMPLETED SUCCESSFULLY ===')
       
-      // Force a page reload to update the UI
-      window.location.reload()
-      
+      // First call the success callback
       onSuccess?.()
+      
+      // Then close the modal
       onHide?.()
-
     } catch (error) {
       console.error('=== PAYMENT METHOD FORM SUBMISSION ERROR ===')
       console.error('Error details:', error)

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { Modal, Dropdown } from 'react-bootstrap'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { useAuth, supabase } from '@/context/auth-context'
 import AddPaymentMethodModal from './add-payment-method-modal'
 
 // Add global styles to remove dropdown arrows
@@ -16,7 +16,6 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showAddCard, setShowAddCard] = useState(false)
-  const supabase = createClientComponentClient()
 
   useEffect(() => {
     if (show) {
@@ -27,45 +26,63 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
   const loadPaymentMethods = async () => {
     try {
       setLoading(true)
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      setError(null)
 
-      // Load all payment methods
-      const { data: methods, error: dbError } = await supabase
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        setError('User authentication required')
+        return
+      }
+
+      // First get all payment methods from database
+      const { data: methods, error: fetchError } = await supabase
         .from('payment_methods')
         .select('*')
         .eq('user_id', user.id)
         .order('is_default', { ascending: false })
 
-      if (dbError) throw dbError
+      if (fetchError) {
+        console.error('Error fetching payment methods:', fetchError)
+        throw new Error('Failed to load payment methods')
+      }
 
-      // Load Stripe details for each payment method
-      const methodsWithDetails = await Promise.all(methods.map(async (method) => {
-        try {
-          const response = await fetch('/api/stripe/process-payment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              payment_method: method.payment_method_id,
-              type: 'get_payment_method',
-              user_id: user.id
-            })
-          })
-          const { paymentMethod } = await response.json()
-          return {
-            ...method,
-            stripeDetails: paymentMethod
+      // Then get details from Stripe for each payment method
+      const methodsWithDetails = await Promise.all(
+        methods.map(async (method) => {
+          try {
+            const response = await fetch(
+              `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-payment`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+                },
+                body: JSON.stringify({
+                  type: 'get_payment_method',
+                  payment_method: method.payment_method_id
+                })
+              }
+            )
+
+            if (!response.ok) {
+              throw new Error('Failed to get payment method details')
+            }
+
+            const { paymentMethod } = await response.json()
+            return { ...method, stripeDetails: paymentMethod }
+          } catch (error) {
+            console.error('Error getting payment method details:', error)
+            // Return the method without Stripe details if there's an error
+            return method
           }
-        } catch (error) {
-          console.error('Error loading payment method details:', error)
-          return method
-        }
-      }))
+        })
+      )
 
       setPaymentMethods(methodsWithDetails)
     } catch (error) {
       console.error('Error loading payment methods:', error)
-      setError('Failed to load payment methods')
+      setError(error.message || 'Failed to load payment methods')
     } finally {
       setLoading(false)
     }
@@ -73,51 +90,122 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
 
   const handleSetDefault = async (methodId) => {
     try {
+      setError(null)
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        setError('User authentication required')
+        return
+      }
 
-      // Update all payment methods to not default
-      await supabase
+      // Get the payment method details
+      const { data: method, error: fetchError } = await supabase
         .from('payment_methods')
-        .update({ is_default: false })
-        .eq('user_id', user.id)
-
-      // Set the selected method as default
-      await supabase
-        .from('payment_methods')
-        .update({ is_default: true })
+        .select('payment_method_id')
         .eq('id', methodId)
+        .single()
 
+      if (fetchError) {
+        console.error('Error fetching payment method:', fetchError)
+        throw new Error('Failed to find payment method')
+      }
+
+      // First update in Stripe using Edge Function
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-payment`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            type: 'set_default_payment_method',
+            payment_method: method.payment_method_id,
+            user_id: user.id
+          })
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to set default payment method')
+      }
+
+      // Reload payment methods to get updated state
       await loadPaymentMethods()
       onPaymentMethodAdded?.()
     } catch (error) {
       console.error('Error setting default payment method:', error)
-      setError('Failed to set default payment method')
+      setError(error.message || 'Failed to set default payment method')
     }
   }
 
   const handleDelete = async (methodId) => {
     try {
+      setError(null)
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        setError('User authentication required')
+        return
+      }
 
-      await supabase
+      // Check if this is the default payment method
+      const { data: method, error: fetchError } = await supabase
         .from('payment_methods')
-        .delete()
+        .select('payment_method_id, is_default')
         .eq('id', methodId)
+        .single()
 
+      if (fetchError) {
+        console.error('Error fetching payment method:', fetchError)
+        throw new Error('Failed to find payment method')
+      }
+
+      if (method.is_default) {
+        throw new Error('Cannot delete the default payment method. Please set another card as default first.')
+      }
+
+      // First delete from Stripe using Edge Function
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-payment`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            type: 'delete_payment_method',
+            payment_method: method.payment_method_id,
+            user_id: user.id
+          })
+        }
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to delete payment method')
+      }
+
+      // Reload payment methods to get updated state
       await loadPaymentMethods()
       onPaymentMethodAdded?.()
     } catch (error) {
       console.error('Error deleting payment method:', error)
-      setError('Failed to delete payment method')
+      setError(error.message || 'Failed to delete payment method')
     }
   }
 
   const handleAddCardSuccess = async () => {
-    setShowAddCard(false)
-    await loadPaymentMethods()
-    onPaymentMethodAdded?.()
+    try {
+      setError(null)
+      await loadPaymentMethods()
+      setShowAddCard(false)
+      onPaymentMethodAdded?.()
+    } catch (error) {
+      console.error('Error refreshing payment methods:', error)
+      setError('Failed to refresh payment methods')
+    }
   }
 
   return (
@@ -141,68 +229,80 @@ export default function ManagePaymentMethodsModal({ show, onHide, onPaymentMetho
               </div>
             </div>
           ) : (
-            <div className="payment-methods-list">
-              {paymentMethods.map((method) => (
-                <div key={method.id} className="card mb-3">
-                  <div className="card-body">
-                    <div className="d-flex justify-content-between align-items-center">
-                      <div className="d-flex align-items-center">
-                        <div className="me-3">
-                          <i className={`bi bi-credit-card-2-front fs-3 ${getCardIcon(method.stripeDetails?.card.brand)}`}></i>
-                        </div>
-                        <div>
-                          <div className="fw-bold">
-                            {getCardBrandName(method.stripeDetails?.card.brand)} •••• {method.stripeDetails?.card.last4}
-                            {method.is_default && (
-                              <span className="ms-2 badge bg-primary">Primary Card</span>
-                            )}
+            <>
+              <div className="payment-methods-list">
+                {paymentMethods.length === 0 ? (
+                  <div className="text-center py-4">
+                    <p className="text-muted mb-0">No payment methods added yet</p>
+                  </div>
+                ) : (
+                  paymentMethods.map((method) => (
+                    <div key={method.id} className="card mb-3">
+                      <div className="card-body">
+                        <div className="d-flex justify-content-between align-items-center">
+                          <div className="d-flex align-items-center">
+                            <div className="me-3">
+                              <i className={`bi bi-credit-card-2-front fs-3 ${getCardIcon(method.stripeDetails?.card.brand)}`}></i>
+                            </div>
+                            <div>
+                              <div className="fw-bold">
+                                {getCardBrandName(method.stripeDetails?.card.brand)} •••• {method.stripeDetails?.card.last4}
+                                {method.is_default && (
+                                  <span className="ms-2 badge bg-primary">Primary Card</span>
+                                )}
+                              </div>
+                              <div className="text-muted small">
+                                Expires {method.stripeDetails?.card.exp_month}/{method.stripeDetails?.card.exp_year}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-muted small">
-                            Expires {method.stripeDetails?.card.exp_month}/{method.stripeDetails?.card.exp_year}
-                          </div>
+                          {!method.is_default && (
+                            <Dropdown align="end">
+                              <Dropdown.Toggle 
+                                variant="link" 
+                                className="p-0 text-dark d-flex align-items-center btn-no-caret" 
+                                style={{ 
+                                  boxShadow: 'none',
+                                  border: 'none',
+                                  background: 'none'
+                                }}
+                              >
+                                <i className="bi bi-three-dots-vertical"></i>
+                              </Dropdown.Toggle>
+                              <Dropdown.Menu>
+                                <Dropdown.Item onClick={() => handleSetDefault(method.id)}>
+                                  <i className="bi bi-check-circle me-2"></i>
+                                  Set as Primary
+                                </Dropdown.Item>
+                                <Dropdown.Item 
+                                  onClick={() => handleDelete(method.id)}
+                                  className="text-danger"
+                                >
+                                  <i className="bi bi-trash me-2"></i>
+                                  Delete Card
+                                </Dropdown.Item>
+                              </Dropdown.Menu>
+                            </Dropdown>
+                          )}
                         </div>
                       </div>
-                      {!method.is_default && (
-                        <Dropdown align="end">
-                          <Dropdown.Toggle 
-                            variant="link" 
-                            className="p-0 text-dark d-flex align-items-center btn-no-caret" 
-                            style={{ 
-                              boxShadow: 'none',
-                              border: 'none',
-                              background: 'none'
-                            }}
-                          >
-                            <i className="bi bi-three-dots-vertical"></i>
-                          </Dropdown.Toggle>
-                          <Dropdown.Menu>
-                            <Dropdown.Item onClick={() => handleSetDefault(method.id)}>
-                              <i className="bi bi-check-circle me-2"></i>
-                              Set as Primary
-                            </Dropdown.Item>
-                            <Dropdown.Item 
-                              onClick={() => handleDelete(method.id)}
-                              className="text-danger"
-                            >
-                              <i className="bi bi-trash me-2"></i>
-                              Delete Card
-                            </Dropdown.Item>
-                          </Dropdown.Menu>
-                        </Dropdown>
-                      )}
                     </div>
-                  </div>
-                </div>
-              ))}
+                  ))
+                )}
+              </div>
 
-              <button 
-                className="btn btn-outline-primary w-100 mt-3"
-                onClick={() => setShowAddCard(true)}
-              >
-                <i className="bi bi-plus-circle me-2"></i>
-                Add New Card
-              </button>
-            </div>
+              <div className="d-grid gap-2 mt-4">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setShowAddCard(true)}
+                  disabled={loading}
+                >
+                  <i className="bi bi-plus-circle me-2"></i>
+                  Add New Card
+                </button>
+              </div>
+            </>
           )}
         </Modal.Body>
       </Modal>

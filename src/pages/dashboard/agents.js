@@ -2,13 +2,9 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/auth-context';
 import DashboardLayout from '@/components/dashboard/layout';
 import { Button, Form, Spinner, Alert } from 'react-bootstrap';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/context/auth-context';
 import styles from '@/styles/dashboard.module.css';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+import { useRouter } from 'next/router';
 
 const customStyles = {
   pageContainer: {
@@ -101,7 +97,7 @@ const customStyles = {
 };
 
 export default function AgentsPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [agent, setAgent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [userPhoneNumber, setUserPhoneNumber] = useState(null);
@@ -114,69 +110,102 @@ export default function AgentsPage() {
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  const router = useRouter();
+
   useEffect(() => {
-    if (user) {
-      loadAgent();
-      loadUserPhoneNumber();
+    if (authLoading) return;
+    
+    if (!user) {
+      router.push('/login');
+      return;
     }
-  }, [user]);
 
-  const loadAgent = async () => {
-    try {
-      console.log('Loading agent for user:', user.id);
-      
-      const { data, error } = await supabase
-        .from('vapi_agents')
-        .select(`
-          *,
-          scripts (
+    const loadData = async () => {
+      try {
+        // Get phone number first
+        const { data: phoneData, error: phoneError } = await supabase
+          .from('phone_numbers')
+          .select('phone_number')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .single();
+
+        if (phoneError && phoneError.code !== 'PGRST116') {
+          console.error('Phone number error:', phoneError);
+          throw phoneError;
+        }
+
+        if (phoneData?.phone_number) {
+          setUserPhoneNumber(phoneData.phone_number);
+        }
+
+        // Load agent data with scripts
+        const { data: agentData, error: agentError } = await supabase
+          .from('vapi_agents')
+          .select(`
             id,
-            title,
-            content
-          )
-        `)
-        .eq('user_id', user.id)
-        .single();
+            vapi_agent_id,
+            voice_id,
+            voice_provider,
+            is_active,
+            scripts (
+              id,
+              name,
+              script_content,
+              first_message,
+              end_call_message,
+              voicemail_message
+            )
+          `)
+          .eq('user_id', user.id)
+          .single();
 
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
+        // If agent exists, load its data
+        if (agentData) {
+          setAgent(agentData);
+          const script = agentData.scripts?.[0];
+          if (script) {
+            setScriptContent(script.script_content || '');
+            setFirstMessage(script.first_message || 'Hi, this is your AI assistant. How can I help you today?');
+            setEndCallMessage(script.end_call_message || 'Thank you for your time. Have a great day!');
+            setVoicemailMessage(script.voicemail_message || 'Hi, this is your AI assistant. I\'m sorry I missed your call. Please call back at your convenience.');
+          }
+        } else {
+          // Set default values if no agent exists
+          setAgent(null);
+          setScriptContent('');
+          setFirstMessage('Hi, this is your AI assistant. How can I help you today?');
+          setEndCallMessage('Thank you for your time. Have a great day!');
+          setVoicemailMessage('Hi, this is your AI assistant. I\'m sorry I missed your call. Please call back at your convenience.');
+        }
+      } catch (error) {
+        console.error('Error loading agent data:', error);
+        setError('Failed to load agent data');
+      } finally {
+        setLoading(false);
       }
+    };
 
-      console.log('Loaded agent:', data);
-      setAgent(data);
-      
-      if (data) {
-        // Set script content if available
-        setScriptContent(data.scripts?.content || '');
-        
-        // Set messages from vapi_agents table
-        setFirstMessage(data.first_message || 'Hi, this is your AI assistant. How can I help you today?');
-        setEndCallMessage(data.end_call_message || 'Thank you for your time. Have a great day!');
-        setVoicemailMessage(data.voicemail_message || 'Hi, this is your AI assistant. I\'m sorry I missed your call. Please call back at your convenience.');
-      }
-    } catch (error) {
-      console.error('Error loading agent:', error);
-      setError('Failed to load agent');
-    } finally {
-      setLoading(false);
-    }
-  };
+    loadData();
+  }, [user, authLoading, router]);
 
-  const loadUserPhoneNumber = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('phone_numbers')
-        .select('phone_number')
-        .eq('user_id', user.id)
-        .single();
+  if (authLoading || loading) {
+    return (
+      <DashboardLayout>
+        <div className="container py-4">
+          <div className="text-center">
+            <div className="spinner-border text-primary" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
-      if (error) throw error;
-      setUserPhoneNumber(data?.phone_number);
-    } catch (error) {
-      console.error('Error loading phone number:', error);
-    }
-  };
+  if (!user) {
+    return null;
+  }
 
   const handleSaveAgent = async (e) => {
     e.preventDefault();
@@ -190,33 +219,97 @@ export default function AgentsPage() {
     }
 
     try {
-      const endpoint = agent ? '/api/vapi/update-script' : '/api/vapi/create-agent';
-      const method = agent ? 'PUT' : 'POST';
-
-      const response = await fetch(endpoint, {
-        method,
+      // First, create or update the agent in VAPI
+      const vapiResponse = await fetch('/api/vapi/create-agent', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
         },
         body: JSON.stringify({
-          agentId: agent?.id,
-          name: userPhoneNumber,
-          scriptContent,
           phoneNumber: userPhoneNumber,
-          firstMessage,
-          endCallMessage,
-          voicemailMessage
+          scriptContent
         }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || `Failed to ${agent ? 'update' : 'create'} agent`);
+      const vapiData = await vapiResponse.json();
+      if (!vapiResponse.ok) {
+        throw new Error(vapiData.error || 'Failed to create VAPI agent');
       }
 
-      loadAgent();
+      // Then, create or update the agent in our database
+      let agentId = agent?.id;
+      
+      if (!agentId) {
+        // Create new VAPI agent
+        const { data: newAgent, error: createError } = await supabase
+          .from('vapi_agents')
+          .insert({
+            user_id: user.id,
+            name: userPhoneNumber,
+            vapi_agent_id: vapiData.id,
+            voice_id: vapiData.voice_id,
+            voice_provider: vapiData.voice_provider,
+            is_active: true
+          })
+          .select()
+          .single();
+
+        if (createError) throw createError;
+        agentId = newAgent.id;
+      } else {
+        // Update existing VAPI agent
+        const { error: updateError } = await supabase
+          .from('vapi_agents')
+          .update({
+            name: userPhoneNumber,
+            vapi_agent_id: vapiData.id,
+            voice_id: vapiData.voice_id,
+            voice_provider: vapiData.voice_provider,
+            is_active: true
+          })
+          .eq('id', agentId);
+
+        if (updateError) throw updateError;
+      }
+
+      // Create or update the script
+      const { error: scriptError } = await supabase
+        .from('scripts')
+        .upsert({
+          agent_id: agentId,
+          name: userPhoneNumber,
+          script_content: scriptContent,
+          first_message: firstMessage,
+          end_call_message: endCallMessage,
+          voicemail_message: voicemailMessage
+        }, {
+          onConflict: 'agent_id'
+        });
+
+      if (scriptError) throw scriptError;
+
+      // Reload the complete agent data
+      const { data: updatedAgent, error: loadError } = await supabase
+        .from('vapi_agents')
+        .select(`
+          id,
+          vapi_agent_id,
+          voice_id,
+          voice_provider,
+          name,
+          is_active,
+          scripts (
+            id,
+            content
+          )
+        `)
+        .eq('id', agentId)
+        .single();
+
+      if (loadError) throw loadError;
+      setAgent(updatedAgent);
+
     } catch (error) {
       console.error('Error saving agent:', error);
       setError(error.message);
@@ -224,16 +317,6 @@ export default function AgentsPage() {
       setSaving(false);
     }
   };
-
-  if (loading) {
-    return (
-      <DashboardLayout>
-        <div className={styles.loadingState}>
-          <div className={styles.spinner} />
-        </div>
-      </DashboardLayout>
-    );
-  }
 
   return (
     <DashboardLayout>
@@ -271,67 +354,18 @@ export default function AgentsPage() {
               <h2 style={customStyles.sectionTitle}>Agent Messages</h2>
               
               <Form.Group className="mb-4">
-                <Form.Label style={customStyles.label}>First Message</Form.Label>
-                <Form.Control
-                  type="text"
-                  value={firstMessage}
-                  onChange={(e) => setFirstMessage(e.target.value)}
-                  required
-                  placeholder="Hi, this is [Agent Name]. How can I assist you today?"
-                  style={customStyles.input}
-                />
-                <Form.Text style={customStyles.helpText}>
-                  This is what the agent will say when starting a call.
-                </Form.Text>
-              </Form.Group>
-            </div>
-
-            <div style={customStyles.section}>
-              <Form.Group>
-                <Form.Label style={customStyles.label}>System Prompt</Form.Label>
+                <Form.Label style={customStyles.label}>Script Content</Form.Label>
                 <Form.Control
                   as="textarea"
                   rows={10}
                   value={scriptContent}
                   onChange={(e) => setScriptContent(e.target.value)}
                   required
-                  placeholder="Enter the system prompt that defines your agent's behavior and knowledge"
+                  placeholder="Enter the script content that defines your agent's behavior and knowledge"
                   style={customStyles.textarea}
                 />
                 <Form.Text style={customStyles.helpText}>
-                  This is the main system prompt that defines your agent's behavior and knowledge.
-                </Form.Text>
-              </Form.Group>
-            </div>
-
-            <div style={customStyles.section}>
-              <Form.Group className="mb-4">
-                <Form.Label style={customStyles.label}>End Call Message</Form.Label>
-                <Form.Control
-                  type="text"
-                  value={endCallMessage}
-                  onChange={(e) => setEndCallMessage(e.target.value)}
-                  required
-                  placeholder="Thank you for your time. Have a great day!"
-                  style={customStyles.input}
-                />
-                <Form.Text style={customStyles.helpText}>
-                  This is what the agent will say before ending a call.
-                </Form.Text>
-              </Form.Group>
-
-              <Form.Group className="mb-0">
-                <Form.Label style={customStyles.label}>Voicemail Message</Form.Label>
-                <Form.Control
-                  type="text"
-                  value={voicemailMessage}
-                  onChange={(e) => setVoicemailMessage(e.target.value)}
-                  required
-                  placeholder="Hi, this is [Agent Name]. I'm sorry I missed your call. Please call back at your convenience."
-                  style={customStyles.input}
-                />
-                <Form.Text style={customStyles.helpText}>
-                  This is what the agent will say when leaving a voicemail.
+                  This is the main script content that defines your agent's behavior and knowledge.
                 </Form.Text>
               </Form.Group>
             </div>

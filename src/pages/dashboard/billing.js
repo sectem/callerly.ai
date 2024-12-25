@@ -1,48 +1,36 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import DashboardLayout from '@/components/dashboard/layout';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Card, Table, Nav } from 'react-bootstrap';
+import { useAuth, supabase } from '@/context/auth-context';
+import { Card } from 'react-bootstrap';
 import ManagePaymentMethodsModal from '@/components/dashboard/billing/manage-payment-methods-modal';
 
-export default function BillingPage() {
+export default function Billing() {
+  const router = useRouter();
+  const { user, auth } = useAuth();
   const [showManagePayments, setShowManagePayments] = useState(false);
-  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState(null);
   const [paymentMethodLoading, setPaymentMethodLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('charges');
-  const supabase = createClientComponentClient();
 
   useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        window.location.href = '/login';
-        return;
-      }
-      setUser(user);
-      await loadPaymentMethods(user.id);
-      setLoading(false);
-    } catch (error) {
-      console.error('Auth error:', error);
-      setError('Authentication failed');
-      setLoading(false);
+    if (user) {
+      loadPaymentMethods(user.id);
+    } else {
+      router.push('/login');
     }
-  };
+  }, [user, router]);
 
   const loadPaymentMethods = async (userId) => {
     try {
       setPaymentMethodLoading(true);
       console.log('Loading payment methods for user:', userId);
       
-      const { data: paymentMethods, error: paymentMethodError } = await supabase
+      // Get default payment method from payment_methods table with all details
+      const { data: paymentMethod, error: paymentMethodError } = await supabase
         .from('payment_methods')
         .select('*')
         .eq('user_id', userId)
@@ -57,42 +45,36 @@ export default function BillingPage() {
           console.error('Error loading payment methods:', paymentMethodError);
           setError('Failed to load payment method');
         }
-      } else if (paymentMethods) {
-        console.log('Payment method found:', paymentMethods);
-        await loadPaymentMethodDetails(paymentMethods.payment_method_id, userId);
+      } else if (paymentMethod) {
+        console.log('Payment method found:', paymentMethod);
+        // Transform the database record into the format expected by the UI
+        setPaymentMethod({
+          card: {
+            brand: paymentMethod.card_brand,
+            last4: paymentMethod.card_last4,
+            exp_month: paymentMethod.card_exp_month,
+            exp_year: paymentMethod.card_exp_year
+          },
+          billing_details: {
+            name: paymentMethod.billing_name,
+            email: paymentMethod.billing_email,
+            address: {
+              line1: paymentMethod.billing_address_line1,
+              line2: paymentMethod.billing_address_line2,
+              city: paymentMethod.billing_city,
+              state: paymentMethod.billing_state,
+              postal_code: paymentMethod.billing_postal_code,
+              country: paymentMethod.billing_country
+            }
+          }
+        });
       }
     } catch (error) {
       console.error('Error in loadPaymentMethods:', error);
       setError('Failed to load payment method');
     } finally {
       setPaymentMethodLoading(false);
-    }
-  };
-
-  const loadPaymentMethodDetails = async (paymentMethodId, userId) => {
-    try {
-      console.log('Loading payment method details:', paymentMethodId);
-      const response = await fetch('/api/stripe/process-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          payment_method: paymentMethodId,
-          type: 'get_payment_method',
-          user_id: userId
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to load payment method details');
-      }
-
-      const data = await response.json();
-      console.log('Payment method details loaded:', data.paymentMethod);
-      setPaymentMethod(data.paymentMethod);
-    } catch (error) {
-      console.error('Error loading payment method details:', error);
-      setError('Failed to load payment method details');
-      setPaymentMethod(null);
+      setLoading(false);
     }
   };
 
@@ -119,7 +101,7 @@ export default function BillingPage() {
   return (
     <DashboardLayout>
       <div className="container py-4">
-        <h1 className="h3 mb-4">Billing</h1>
+        <h1 className="h3 mb-4">Payment Methods</h1>
         
         {error && (
           <div className="alert alert-danger" role="alert">

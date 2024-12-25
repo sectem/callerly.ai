@@ -7,15 +7,14 @@
  * @page
  */
 import { useEffect, useState } from 'react';
-import { useAuth } from '@/context/auth-context';
-import { twilioUtils, SUPPORTED_COUNTRIES, MATCH_TYPES } from '@/utils/twilio';
+import { useAuth, supabase } from '@/context/auth-context';
+import { SUPPORTED_COUNTRIES, MATCH_TYPES } from '@/utils/twilio';
 import DashboardLayout from '@/components/dashboard/layout';
 import { Button, Spinner, Modal, ListGroup, Form, Row, Col } from 'react-bootstrap';
 import { FaPhone } from 'react-icons/fa';
 import styles from '@/styles/dashboard.module.css';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { supabase } from '@/utils/supabase';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -35,42 +34,33 @@ export default function Dashboard() {
   const [matchType, setMatchType] = useState('contains');
 
   useEffect(() => {
-    const loadPhoneNumber = async () => {
-      console.log('Loading phone number, user:', user);
-      
-      if (!user?.id) {
-        console.log('No user found');
-        setLoading(false);
-        return;
-      }
-      
-      try {
-        const numbers = await twilioUtils.listPhoneNumbers(user.id);
-        console.log('Fetched numbers:', numbers);
-        setActiveNumber(numbers?.[0] || null);
-      } catch (error) {
-        console.error('Error loading phone number:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (authLoading) return;
+    
+    if (!user) {
+      router.push('/login');
+      return;
+    }
 
-    loadPhoneNumber();
-  }, [user]);
-
-  useEffect(() => {
-    const checkAgentStatus = async () => {
-      if (!user?.id) return;
-      
+    const loadData = async () => {
       try {
-        // Check if agent exists in database with scripts joined
+        // Load phone number from our database
+        const { data: phoneData, error: phoneError } = await supabase
+          .from('phone_numbers')
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (phoneError) throw phoneError;
+        setActiveNumber(phoneData);
+
+        // Check agent status
         const { data: agent, error } = await supabase
           .from('vapi_agents')
           .select(`
             *,
             scripts (
               id,
-              content
+              script_content
             )
           `)
           .eq('user_id', user.id)
@@ -78,12 +68,7 @@ export default function Dashboard() {
 
         if (error) throw error;
 
-        // Check if agent has all required fields
-        const isConfigured = agent && 
-          agent.scripts?.content && 
-          agent.first_message && 
-          agent.end_call_message && 
-          agent.voicemail_message;
+        const isConfigured = agent && agent.scripts?.[0]?.script_content;
 
         setAgentStatus({
           loading: false,
@@ -91,27 +76,48 @@ export default function Dashboard() {
           agent
         });
       } catch (error) {
-        console.error('Error checking agent status:', error);
+        console.error('Error loading dashboard data:', error);
         setAgentStatus({
           loading: false,
           configured: false,
-          error: 'Failed to check agent status'
+          error: 'Failed to load data'
         });
+      } finally {
+        setLoading(false);
       }
     };
 
-    checkAgentStatus();
-  }, [user]);
+    loadData();
+  }, [user, authLoading, router]);
 
   const handleSearch = async () => {
     setLoadingNumbers(true);
+    setAvailableNumbers([]);
     try {
-      const numbers = await twilioUtils.listAvailableNumbers(
-        selectedCountry,
-        numberPattern,
+      console.log('Searching for numbers with params:', {
+        country: selectedCountry,
+        pattern: numberPattern,
         matchType
+      });
+
+      const { data, error } = await supabase.functions.invoke(
+        'twilio',
+        {
+          body: JSON.stringify({
+            action: 'search_numbers',
+            country: selectedCountry,
+            pattern: numberPattern,
+            matchType
+          })
+        }
       );
-      setAvailableNumbers(numbers);
+
+      console.log('Search response:', { data, error });
+
+      if (error) throw error;
+      if (data?.numbers) {
+        setAvailableNumbers(data.numbers);
+      }
     } catch (error) {
       console.error('Error fetching available numbers:', error);
       alert('Failed to fetch available numbers. Please try again.');
@@ -121,64 +127,64 @@ export default function Dashboard() {
   };
 
   const handleShowAvailableNumbers = () => {
-    if (!user?.subscription) {
-      router.push('/plans');
-      return;
-    }
     setShowModal(true);
     handleSearch();
   };
 
-  const handlePurchaseNumber = async () => {
-    if (!user?.subscription) {
-      router.push('/plans');
-      return;
-    }
-    if (!user?.id || !selectedNumber) {
+  const handlePurchaseNumber = async (numberToPurchase) => {
+    if (!user?.id || !numberToPurchase) {
       return;
     }
 
     try {
       setPurchasing(true);
-      console.log('Purchasing number for user:', user.id);
-      const newNumber = await twilioUtils.purchasePhoneNumber(user.id, selectedNumber.phoneNumber);
-      console.log('Purchased number:', newNumber);
-      setActiveNumber(newNumber);
-      setShowModal(false);
-      setSelectedNumber(null);
+      setSelectedNumber(numberToPurchase);
+      console.log('Purchasing number:', numberToPurchase.phoneNumber);
+
+      const { data, error } = await supabase.functions.invoke(
+        'twilio',
+        {
+          body: JSON.stringify({
+            action: 'purchase_number',
+            phone_number: numberToPurchase.phoneNumber,
+            user_id: user.id
+          })
+        }
+      );
+
+      console.log('Purchase response:', { data, error });
+
+      if (error) {
+        throw new Error(error.message || 'Failed to purchase number');
+      }
+
+      if (!data) {
+        throw new Error('No response data from purchase request');
+      }
+
+      // Update local state with the new number
+      setActiveNumber(data);
+      handleModalClose();
+      // Show success message
+      alert('Phone number purchased successfully!');
     } catch (error) {
       console.error('Error purchasing number:', error);
-      alert('Failed to purchase number. Please try again.');
+      alert(error.message || 'Failed to purchase number. Please try again.');
     } finally {
       setPurchasing(false);
+      setSelectedNumber(null);
     }
   };
 
-  useEffect(() => {
-    if (user) {
-      console.log('Dashboard user data:', {
-        id: user.id,
-        subscription: user.subscription,
-        hasSubscription: !!user.subscription
-      });
-    }
-  }, [user]);
+  const handleModalClose = () => {
+    setShowModal(false);
+    setAvailableNumbers([]);
+    setSelectedNumber(null);
+    setNumberPattern('');
+    setMatchType('contains');
+  };
 
-  if (!user) {
-    return (
-      <DashboardLayout>
-        <div className={styles.card}>
-          <div className={styles.cardBody}>
-            <div className="text-center py-4">
-              <p>Please sign in to access the dashboard.</p>
-            </div>
-          </div>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <DashboardLayout>
         <div className={styles.loadingState}>
@@ -188,62 +194,16 @@ export default function Dashboard() {
     );
   }
 
+  if (!user) {
+    return null;
+  }
+
   return (
     <DashboardLayout>
       <div className={styles.pageContainer}>
         <h1 className={styles.pageTitle}>Dashboard</h1>
         
         <div className={styles.cardGrid}>
-          {/* Subscription Status Card */}
-          <div className={styles.cardWrapper}>
-            <div className={styles.card}>
-              <div className={styles.cardHeader}>
-                <h5 className={styles.cardTitle}>Subscription</h5>
-              </div>
-              <div className={styles.cardBody}>
-                {authLoading ? (
-                  <div className="text-center py-4">
-                    <Spinner animation="border" role="status">
-                      <span className="visually-hidden">Loading subscription status...</span>
-                    </Spinner>
-                  </div>
-                ) : user?.subscription ? (
-                  <div className="text-center py-4">
-                    <div className="text-success mb-3">
-                      <i className="bi bi-check-circle-fill" style={{ fontSize: '48px' }}></i>
-                    </div>
-                    <h4 className="mb-2">{user.subscription.plan} Plan</h4>
-                    <p className="text-muted mb-3">
-                      Active until {new Date(user.subscription.current_period_end).toLocaleDateString()}
-                    </p>
-                    <Button 
-                      variant="outline-primary"
-                      onClick={() => router.push('/dashboard/billing')}
-                    >
-                      Manage Subscription
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-center py-4">
-                    <div className="text-danger mb-3">
-                      <i className="bi bi-exclamation-circle-fill" style={{ fontSize: '48px' }}></i>
-                    </div>
-                    <h4 className="mb-2">No Active Subscription</h4>
-                    <p className="text-muted mb-3">
-                      Subscribe to a plan to start using our services.
-                    </p>
-                    <Button 
-                      variant="primary"
-                      onClick={() => router.push('/plans')}
-                    >
-                      View Plans
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
           {/* Phone Number Card */}
           <div className={styles.cardWrapper}>
             <div className={styles.card}>
@@ -251,69 +211,64 @@ export default function Dashboard() {
                 <h5 className={styles.cardTitle}>Phone Number</h5>
               </div>
               <div className={styles.cardBody}>
-                {!activeNumber ? (
+                {activeNumber ? (
                   <div className="text-center py-4">
-                    <FaPhone className={user?.subscription ? "text-primary" : "text-muted"} size={48} />
-                    <p className="mb-4">You don't have an active phone number</p>
-                    {user?.subscription ? (
-                      <Button 
-                        variant="primary" 
-                        onClick={handleShowAvailableNumbers}
-                        disabled={loadingNumbers}
-                      >
-                        {loadingNumbers ? (
-                          <>
-                            <Spinner
-                              as="span"
-                              animation="border"
-                              size="sm"
-                              role="status"
-                              aria-hidden="true"
-                              className="me-2"
-                            />
-                            Loading Numbers...
-                          </>
-                        ) : (
-                          'Get a Number'
-                        )}
-                      </Button>
-                    ) : (
-                      <div>
-                        <p className="text-danger mb-3">
-                          <i className="bi bi-exclamation-circle-fill me-2"></i>
-                          Subscription required to get a phone number
-                        </p>
-                        <Button 
-                          variant="primary"
-                          onClick={() => router.push('/plans')}
-                        >
-                          View Plans
-                        </Button>
-                      </div>
-                    )}
+                    <div className="mb-3">
+                      <FaPhone size={48} className="text-primary" />
+                    </div>
+                    <h4 className="mb-2">{activeNumber.phone_number}</h4>
+                    <p className="text-muted mb-3">
+                      Your active phone number
+                    </p>
                   </div>
                 ) : (
-                  <div className="text-center">
-                    <FaPhone className="text-success mb-3" size={32} />
-                    <h3 className="mb-2">{activeNumber.phone_number}</h3>
-                    <p className="text-muted mb-0">
-                      {activeNumber.metadata.locality}, {activeNumber.metadata.region}
-                    </p>
-                    <div className="mt-3">
-                      {activeNumber.capabilities.voice && (
-                        <span className="badge bg-success me-2">Voice Enabled</span>
-                      )}
-                      {activeNumber.capabilities.SMS && (
-                        <span className="badge bg-info">SMS Enabled</span>
-                      )}
+                  <div className="text-center py-4">
+                    <div className="mb-3">
+                      <FaPhone size={48} className="text-muted" />
                     </div>
+                    <h4 className="mb-2">No Phone Number</h4>
+                    <p className="text-muted mb-3">
+                      Get a phone number to start making calls
+                    </p>
+                    <Button 
+                      variant="primary"
+                      onClick={handleShowAvailableNumbers}
+                    >
+                      Get Phone Number
+                    </Button>
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* AI Agent Status Card */}
+          {/* Balance Card */}
+          <div className={styles.cardWrapper}>
+            <div className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h5 className={styles.cardTitle}>Balance</h5>
+              </div>
+              <div className={styles.cardBody}>
+                <div className="text-center py-4">
+                  <div className="mb-3">
+                    <i className="bi bi-wallet2" style={{ fontSize: '48px', color: '#198754' }}></i>
+                  </div>
+                  <h4 className="mb-2">$0.00</h4>
+                  <p className="text-muted mb-3">
+                    Available balance
+                  </p>
+                  <Button 
+                    variant="outline-success"
+                    onClick={() => {/* TODO: Add balance */}}
+                  >
+                    Add Balance
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Agent Status Card */}
           <div className={styles.cardWrapper}>
             <div className={styles.card}>
               <div className={styles.cardHeader}>
@@ -323,40 +278,38 @@ export default function Dashboard() {
                 {agentStatus.loading ? (
                   <div className="text-center py-4">
                     <Spinner animation="border" role="status">
-                      <span className="visually-hidden">Checking agent status...</span>
+                      <span className="visually-hidden">Loading agent status...</span>
                     </Spinner>
                   </div>
                 ) : agentStatus.configured ? (
                   <div className="text-center py-4">
                     <div className="text-success mb-3">
-                      <i className="bi bi-check-circle-fill" style={{ fontSize: '48px' }}></i>
+                      <i className="bi bi-robot" style={{ fontSize: '48px' }}></i>
                     </div>
-                    <h4 className="mb-2">AI Agent Configured</h4>
+                    <h4 className="mb-2">Agent Configured</h4>
                     <p className="text-muted mb-3">
-                      Your AI agent is properly configured and ready to handle calls.
+                      Your AI agent is ready to handle calls
                     </p>
-                    <Button 
-                      variant="outline-primary"
-                      onClick={() => router.push('/dashboard/agents')}
-                    >
-                      View Configuration
-                    </Button>
+                    <Link href="/dashboard/agents">
+                      <Button variant="outline-primary">
+                        Manage Agent
+                      </Button>
+                    </Link>
                   </div>
                 ) : (
                   <div className="text-center py-4">
                     <div className="text-warning mb-3">
-                      <i className="bi bi-exclamation-circle-fill" style={{ fontSize: '48px' }}></i>
+                      <i className="bi bi-robot" style={{ fontSize: '48px' }}></i>
                     </div>
-                    <h4 className="mb-2">AI Agent Not Configured</h4>
+                    <h4 className="mb-2">Agent Not Configured</h4>
                     <p className="text-muted mb-3">
-                      Please configure your AI agent to start handling calls.
+                      Configure your AI agent to start handling calls
                     </p>
-                    <Button 
-                      variant="primary"
-                      onClick={() => router.push('/dashboard/agents')}
-                    >
-                      Configure Agent
-                    </Button>
+                    <Link href="/dashboard/agents">
+                      <Button variant="primary">
+                        Configure Agent
+                      </Button>
+                    </Link>
                   </div>
                 )}
               </div>
@@ -364,17 +317,16 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Available Numbers Modal */}
-        <Modal show={showModal} onHide={() => setShowModal(false)} size="lg">
+        {/* Phone Number Selection Modal */}
+        <Modal show={showModal} onHide={handleModalClose} size="lg">
           <Modal.Header closeButton>
             <Modal.Title>Get a Phone Number</Modal.Title>
           </Modal.Header>
           <Modal.Body>
-            {/* Search Form */}
             <Form className="mb-4">
-              <Row className="g-3">
+              <Row>
                 <Col md={4}>
-                  <Form.Group>
+                  <Form.Group className="mb-3">
                     <Form.Label>Country</Form.Label>
                     <Form.Select
                       value={selectedCountry}
@@ -389,18 +341,18 @@ export default function Dashboard() {
                   </Form.Group>
                 </Col>
                 <Col md={4}>
-                  <Form.Group>
+                  <Form.Group className="mb-3">
                     <Form.Label>Number Pattern</Form.Label>
                     <Form.Control
                       type="text"
-                      placeholder="Enter digits"
+                      placeholder="e.g., 555"
                       value={numberPattern}
                       onChange={(e) => setNumberPattern(e.target.value)}
                     />
                   </Form.Group>
                 </Col>
                 <Col md={4}>
-                  <Form.Group>
+                  <Form.Group className="mb-3">
                     <Form.Label>Match Type</Form.Label>
                     <Form.Select
                       value={matchType}
@@ -415,78 +367,80 @@ export default function Dashboard() {
                   </Form.Group>
                 </Col>
               </Row>
-              <div className="mt-3">
-                <Button
-                  variant="secondary"
-                  onClick={handleSearch}
-                  disabled={loadingNumbers}
-                >
-                  Search Numbers
+              <div className="d-grid">
+                <Button variant="primary" onClick={handleSearch} disabled={loadingNumbers}>
+                  {loadingNumbers ? (
+                    <>
+                      <Spinner
+                        as="span"
+                        animation="border"
+                        size="sm"
+                        role="status"
+                        aria-hidden="true"
+                        className="me-2"
+                      />
+                      Searching...
+                    </>
+                  ) : (
+                    'Search Numbers'
+                  )}
                 </Button>
               </div>
             </Form>
 
-            {/* Results List */}
             {loadingNumbers ? (
               <div className="text-center py-4">
                 <Spinner animation="border" role="status">
                   <span className="visually-hidden">Loading numbers...</span>
                 </Spinner>
               </div>
-            ) : (
+            ) : availableNumbers.length > 0 ? (
               <ListGroup>
-                {availableNumbers.map((number) => (
+                {availableNumbers.slice(0, 10).map((number) => (
                   <ListGroup.Item
                     key={number.phoneNumber}
-                    action
-                    active={selectedNumber?.phoneNumber === number.phoneNumber}
-                    onClick={() => setSelectedNumber(number)}
                     className="d-flex justify-content-between align-items-center"
                   >
                     <div>
-                      <h6 className="mb-1">{number.phoneNumber}</h6>
+                      <div className="fw-bold">{number.phoneNumber}</div>
                       <small className="text-muted">
                         {number.locality}, {number.region}
                       </small>
                     </div>
-                    <div>
-                      {number.capabilities.voice && <span className="badge bg-success me-1">Voice</span>}
-                      {number.capabilities.SMS && <span className="badge bg-info">SMS</span>}
-                    </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handlePurchaseNumber(number)}
+                      disabled={purchasing}
+                    >
+                      {purchasing && selectedNumber?.phoneNumber === number.phoneNumber ? (
+                        <>
+                          <Spinner
+                            as="span"
+                            animation="border"
+                            size="sm"
+                            role="status"
+                            aria-hidden="true"
+                            className="me-2"
+                          />
+                          Purchasing...
+                        </>
+                      ) : (
+                        'Purchase'
+                      )}
+                    </Button>
                   </ListGroup.Item>
                 ))}
-                {availableNumbers.length === 0 && !loadingNumbers && (
-                  <div className="text-center py-3">
-                    <p className="mb-0">No numbers found matching your criteria</p>
-                  </div>
-                )}
               </ListGroup>
+            ) : (
+              <div className="text-center text-muted py-4">
+                No numbers found. Try adjusting your search criteria.
+              </div>
             )}
           </Modal.Body>
           <Modal.Footer>
-            <Button variant="secondary" onClick={() => setShowModal(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handlePurchaseNumber}
-              disabled={!selectedNumber || purchasing}
-            >
-              {purchasing ? (
-                <>
-                  <Spinner
-                    as="span"
-                    animation="border"
-                    size="sm"
-                    role="status"
-                    aria-hidden="true"
-                    className="me-2"
-                  />
-                  Getting Number...
-                </>
-              ) : (
-                'Get Selected Number'
-              )}
+            <Button variant="secondary" onClick={handleModalClose}>
+              Close
             </Button>
           </Modal.Footer>
         </Modal>

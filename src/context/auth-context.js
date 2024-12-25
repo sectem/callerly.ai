@@ -2,8 +2,15 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
-// Create a single instance of the Supabase client
-const supabase = createClientComponentClient()
+// Create a single instance of the Supabase client with aggressive session persistence
+export const supabase = createClientComponentClient({
+  options: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    flowType: 'implicit'
+  }
+})
 
 const AuthContext = createContext({})
 
@@ -11,6 +18,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [initialized, setInitialized] = useState(false)
 
   const fetchUserData = async (user) => {
     if (!user) return
@@ -34,13 +42,23 @@ export function AuthProvider({ children }) {
   }
 
   // Add authentication methods
-  const signIn = async ({ email, password }) => {
+  const signIn = async ({ email, password, options = {} }) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
+        options: {
+          ...options,
+          persistSession: true,
+        }
       })
       if (error) throw error
+      
+      // Immediately fetch user data after successful sign in
+      if (data.session?.user) {
+        await fetchUserData(data.session.user)
+      }
+      
       return { data }
     } catch (error) {
       console.error('Error signing in:', error.message)
@@ -61,30 +79,66 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user)
-        fetchUserData(session.user)
-      }
-      setLoading(false)
-    })
+    let mounted = true
 
+    // Get initial session
+    const initializeAuth = async () => {
+      try {
+        console.log('Initializing auth...')
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        if (error) {
+          console.error('Error getting initial session:', error)
+          throw error
+        }
+        
+        if (session?.user && mounted) {
+          console.log('Found existing session for user:', session.user.id)
+          setUser(session.user)
+          await fetchUserData(session.user)
+        } else {
+          console.log('No existing session found')
+        }
+      } catch (error) {
+        console.error('Error in initializeAuth:', error)
+      } finally {
+        if (mounted) {
+          setLoading(false)
+          setInitialized(true)
+        }
+      }
+    }
+
+    initializeAuth()
+
+    // Set up auth state change listener
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        await fetchUserData(session.user)
-      } else {
-        setUser(null)
-        setProfile(null)
+      console.log('Auth state changed:', event, session?.user?.id)
+      
+      if (mounted) {
+        if (session?.user) {
+          setUser(session.user)
+          await fetchUserData(session.user)
+        } else {
+          setUser(null)
+          setProfile(null)
+        }
+        setLoading(false)
       }
-      setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
   }, [])
+
+  // Don't render children until auth is initialized
+  if (!initialized) {
+    return <div>Loading...</div>
+  }
 
   const value = {
     user,
@@ -103,6 +157,4 @@ export const useAuth = () => {
     throw new Error('useAuth must be used within an AuthProvider')
   }
   return context
-}
-
-export { supabase } 
+} 

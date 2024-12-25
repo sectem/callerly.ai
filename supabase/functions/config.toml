@@ -1,0 +1,24 @@
+[functions]
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.stripe-payment]
+verify_jwt = true
+
+[functions.twilio]
+verify_jwt = true
+
+[functions.vapi]
+verify_jwt = true
+
+[functions.auth]
+verify_jwt = true
+
+[functions.shared]
+[functions.shared.environment]
+STRIPE_SECRET_KEY = "env(STRIPE_SECRET_KEY)"
+STRIPE_WEBHOOK_SECRET = "env(STRIPE_WEBHOOK_SECRET)"
+TWILIO_ACCOUNT_SID = "env(TWILIO_ACCOUNT_SID)"
+TWILIO_AUTH_TOKEN = "env(TWILIO_AUTH_TOKEN)"
+TWILIO_PHONE_NUMBER = "env(TWILIO_PHONE_NUMBER)"
+NEXT_PUBLIC_APP_URL = "env(NEXT_PUBLIC_APP_URL)"

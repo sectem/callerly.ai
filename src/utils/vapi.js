@@ -11,12 +11,9 @@ const VAPI_BASE_URL = 'https://api.vapi.ai'; // Base URL without /api
  * Create a new VAPI agent
  * @param {string} name - The name of the agent
  * @param {string} scriptContent - The script content for the agent
- * @param {string} firstMessage - The first message for the agent
- * @param {string} endCallMessage - The end call message for the agent
- * @param {string} voicemailMessage - The voicemail message for the agent
  * @returns {Promise<Object>} - The created agent details
  */
-export async function createVapiAgent(name, scriptContent, firstMessage, endCallMessage, voicemailMessage) {
+export async function createVapiAgent(name, scriptContent) {
     try {
         console.log('Creating VAPI agent:', { name });
 
@@ -35,7 +32,7 @@ export async function createVapiAgent(name, scriptContent, firstMessage, endCall
                 },
                 "model": {
                     "provider": "openai",
-                    "model": "gpt-4o",
+                    "model": "gpt-4",
                     "maxTokens": 1000,
                     "temperature": 0.7,
                     "emotionRecognitionEnabled": true,
@@ -51,8 +48,6 @@ export async function createVapiAgent(name, scriptContent, firstMessage, endCall
                     "voiceId": "luna", 
                     "fillerInjectionEnabled": true
                 },
-                "firstMessage": firstMessage,
-                "firstMessageMode": "assistant-speaks-first",
                 "backgroundSound": "office",
                 "backgroundDenoisingEnabled": true,
                 "serverMessages": [
@@ -61,7 +56,6 @@ export async function createVapiAgent(name, scriptContent, firstMessage, endCall
                 "server": {
                     "url": "https://sdvzu753p5mbhu3a3lsj23ufje0zldtj.lambda-url.us-east-1.on.aws"
                 },
-                "endCallMessage": endCallMessage,
                 "startSpeakingPlan": {
                     "waitSeconds": 1.5,
                     "smartEndpointingEnabled": true,
@@ -76,10 +70,8 @@ export async function createVapiAgent(name, scriptContent, firstMessage, endCall
                     "bye for now",
                     "talk soon"
                 ],
-                "endCallFunctionEnabled": true,
-                "voicemailMessage": voicemailMessage
+                "endCallFunctionEnabled": true
             }),
-
         });
 
         console.log('VAPI Response Status:', vapiResponse.status);
@@ -100,14 +92,11 @@ export async function createVapiAgent(name, scriptContent, firstMessage, endCall
 /**
  * Update an existing VAPI agent's details
  * @param {string} agentId - The VAPI agent ID
- * @param {string} scriptContent - The new script content
  * @param {string} name - The new agent name
- * @param {string} firstMessage - The new first message
- * @param {string} endCallMessage - The new end call message
- * @param {string} voicemailMessage - The new voicemail message
+ * @param {string} scriptContent - The new script content
  * @returns {Promise<Object>} - The updated agent details
  */
-export async function updateAgentScript(agentId, scriptContent, name, firstMessage, endCallMessage, voicemailMessage) {
+export async function updateAgentScript(agentId, name, scriptContent) {
     try {
         const response = await fetch(`${VAPI_BASE_URL}/assistant/${agentId}`, {
             method: 'PATCH',
@@ -129,10 +118,7 @@ export async function updateAgentScript(agentId, scriptContent, name, firstMessa
                     maxTokens: 1000,
                     temperature: 0.7,
                     emotionRecognitionEnabled: true
-                },
-                firstMessage,
-                endCallMessage,
-                voicemailMessage
+                }
             }),
         });
 
@@ -293,30 +279,18 @@ export async function importTwilioNumber(phoneNumber) {
 /**
  * Create a new VAPI agent with associated Twilio number
  * @param {string} name - The name of the agent
- * @param {string} scriptContent - The script content for the agent
  * @param {string} phoneNumber - The Twilio phone number to associate
- * @param {string} firstMessage - The first message for the agent
- * @param {string} endCallMessage - The end call message for the agent
- * @param {string} voicemailMessage - The voicemail message for the agent
+ * @param {string} scriptContent - The script content for the agent
  * @returns {Promise<Object>} - The created agent details with phone number
  */
 export async function createVapiAgentWithPhone(
     name, 
-    scriptContent, 
-    phoneNumber, 
-    firstMessage, 
-    endCallMessage, 
-    voicemailMessage
+    phoneNumber,
+    scriptContent
 ) {
     try {
         // First create the agent
-        const agent = await createVapiAgent(
-            name, 
-            scriptContent, 
-            firstMessage, 
-            endCallMessage, 
-            voicemailMessage
-        );
+        const agent = await createVapiAgent(name, scriptContent);
         
         // Associate the phone number with the agent
         await associatePhoneNumber(agent.id, phoneNumber);

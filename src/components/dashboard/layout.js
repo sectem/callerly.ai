@@ -13,14 +13,8 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import Image from 'next/image';
-import { useAuth } from '@/context/auth-context';
-import { createClient } from '@supabase/supabase-js';
+import { useAuth, supabase } from '@/context/auth-context';
 import styles from '@/styles/dashboard.module.css';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
 
 const NAVIGATION_ITEMS = [
   {
@@ -95,7 +89,7 @@ export default function DashboardLayout({ children }) {
   const handleSignOut = async () => {
     try {
       await signOut();
-      router.push('/signin');
+      router.push('/login');
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -105,9 +99,11 @@ export default function DashboardLayout({ children }) {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
-  const getInitials = (name) => {
-    if (!name) return '';
-    return name.split(' ').map(n => n[0]).join('').toUpperCase();
+  const getInitials = (profile) => {
+    if (!profile) return '';
+    const firstName = profile.first_name || '';
+    const lastName = profile.last_name || '';
+    return `${firstName[0] || ''}${lastName[0] || ''}`.toUpperCase();
   };
 
   return (
@@ -129,9 +125,9 @@ export default function DashboardLayout({ children }) {
 
         <div className={styles.userProfile}>
           <div className={styles.profileImage}>
-            {userProfile?.full_name ? (
+            {userProfile ? (
               <span className={styles.initials}>
-                {getInitials(userProfile.full_name)}
+                {getInitials(userProfile)}
               </span>
             ) : (
               <i className="bi bi-person"></i>
@@ -139,7 +135,7 @@ export default function DashboardLayout({ children }) {
           </div>
           <div className={styles.profileInfo}>
             <h3 className={styles.userName}>
-              {userProfile?.full_name || 'User'}
+              {userProfile ? `${userProfile.first_name || ''} ${userProfile.last_name || ''}` : 'User'}
             </h3>
             <p className={styles.userEmail}>
               {user?.email || 'Loading...'}

@@ -17,8 +17,13 @@
 
 /* Page Container */
 .pageContainer {
-  padding: 1.5rem;
-  width: 100%;
+  padding: 2rem;
+}
+
+.pageTitle {
+  margin-bottom: 2rem;
+  font-size: 1.75rem;
+  font-weight: 600;
 }
 
 /* Responsive Styles */
@@ -179,50 +184,55 @@
 /* Card Grid Layout */
 .cardGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 1.5rem;
-  margin: 1.5rem 0;
-  width: 100%;
+  margin-bottom: 2rem;
+}
+
+@media (max-width: 992px) {
+  .cardGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .cardGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .cardWrapper {
-  min-width: 0;
   height: 100%;
 }
 
 /* Card Styles */
 .card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   height: 100%;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  overflow: hidden;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
 }
 
 .card:hover {
-  transform: translateY(-2px);
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 .cardHeader {
-  padding: 1rem 1.25rem;
-  background: #f9fafb;
+  padding: 1rem 1.5rem;
   border-bottom: 1px solid #e5e7eb;
 }
 
 .cardTitle {
   margin: 0;
-  color: #111827;
-  font-size: 1.125rem;
+  font-size: 1rem;
   font-weight: 600;
-  letter-spacing: -0.025em;
+  color: #374151;
 }
 
 .cardBody {
-  padding: 1.25rem;
-  color: #374151;
+  padding: 1.5rem;
 }
 
 /* Badge Styles */
@@ -385,5 +395,26 @@
 
 .page-header .btn {
   white-space: nowrap;
+}
+
+.loadingState {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
   

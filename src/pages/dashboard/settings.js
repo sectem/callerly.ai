@@ -12,8 +12,8 @@ export default function Settings() {
   const [profile, setProfile] = useState({
     first_name: '',
     last_name: '',
-    company_name: '',
-    phone_number: '',
+    company: '',
+    phone: '',
     role: ''
   });
 
@@ -30,8 +30,8 @@ export default function Settings() {
 
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('first_name, last_name, company_name, phone_number, role')
-        .eq('user_id', user.id)
+        .select('first_name, last_name, company, phone, role')
+        .eq('id', user.id)
         .single();
 
       if (profileError) {
@@ -44,8 +44,8 @@ export default function Settings() {
         setProfile({
           first_name: profileData.first_name || '',
           last_name: profileData.last_name || '',
-          company_name: profileData.company_name || '',
-          phone_number: profileData.phone_number || '',
+          company: profileData.company || '',
+          phone: profileData.phone || '',
           role: profileData.role || ''
         });
       }
@@ -78,10 +78,14 @@ export default function Settings() {
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
-          ...profile,
+          first_name: profile.first_name,
+          last_name: profile.last_name,
+          company: profile.company,
+          phone: profile.phone,
+          role: profile.role,
           updated_at: new Date().toISOString()
         })
-        .eq('user_id', user.id);
+        .eq('id', user.id);
 
       if (updateError) {
         console.error('Error updating profile:', updateError);
@@ -163,27 +167,27 @@ export default function Settings() {
                       />
                     </div>
 
-                    <div className="col-12">
-                      <label htmlFor="company_name" className="form-label">Company Name</label>
+                    <div className="col-md-6">
+                      <label htmlFor="company" className="form-label">Company</label>
                       <input
                         type="text"
                         className="form-control"
-                        id="company_name"
-                        name="company_name"
-                        value={profile.company_name}
+                        id="company"
+                        name="company"
+                        value={profile.company}
                         onChange={handleChange}
                         placeholder="Enter your company name"
                       />
                     </div>
 
                     <div className="col-md-6">
-                      <label htmlFor="phone_number" className="form-label">Phone Number</label>
+                      <label htmlFor="phone" className="form-label">Phone Number</label>
                       <input
                         type="tel"
                         className="form-control"
-                        id="phone_number"
-                        name="phone_number"
-                        value={profile.phone_number}
+                        id="phone"
+                        name="phone"
+                        value={profile.phone}
                         onChange={handleChange}
                         placeholder="Enter your phone number"
                       />

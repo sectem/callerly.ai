@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/context/auth-context'
 import { useRouter } from 'next/router'
 import Image from 'next/image'
@@ -14,8 +14,16 @@ export default function SignInForm() {
   const [touched, setTouched] = useState({})
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
-  const { signIn } = useAuth()
+  const { signIn, user } = useAuth()
   const router = useRouter()
+  const { redirect } = router.query
+
+  // Only redirect if remember me is checked
+  useEffect(() => {
+    if (user && formData.rememberMe) {
+      router.push(redirect || '/dashboard')
+    }
+  }, [user, router, redirect, formData.rememberMe])
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -51,26 +59,25 @@ export default function SignInForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
-    // Mark all fields as touched on submit
-    const allFields = ['email', 'password']
-    const newTouched = allFields.reduce((acc, field) => ({ ...acc, [field]: true }), {})
-    setTouched(newTouched)
-
-    // Check for any errors
-    const hasErrors = allFields.some(field => getFieldError(field))
-    if (hasErrors) return
+    setLoading(true)
+    setError(null)
 
     try {
-      setError(null)
-      setLoading(true)
       const { error } = await signIn({
         email: formData.email,
-        password: formData.password
+        password: formData.password,
+        options: {
+          persistSession: true // Always persist the session
+        }
       })
       if (error) throw error
-      router.push('/dashboard')
+      
+      // Only redirect if remember me is checked
+      if (formData.rememberMe) {
+        router.push(redirect || '/dashboard')
+      }
     } catch (error) {
+      console.error('Error signing in:', error)
       setError(error.message)
     } finally {
       setLoading(false)
