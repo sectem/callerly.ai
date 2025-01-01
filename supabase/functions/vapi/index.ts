@@ -189,6 +189,11 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             name: phoneNumber,
+            "transcriber": {
+                "provider": "deepgram",
+                "language": "en-US",
+                "model": "nova-2-phonecall"
+            },
             "model": {
                 "provider": "openai",
                 "model": "gpt-4o",
@@ -202,9 +207,38 @@ serve(async (req) => {
                     }
                 ]
             },
+            "voice": {
+                "provider": "deepgram",
+                "voiceId": "luna", 
+                "fillerInjectionEnabled": true
+            },
             "firstMessage": firstMessage,
-            "endCallMessage": endCallMessage
-          })
+            "firstMessageMode": "assistant-speaks-first",
+            "backgroundSound": "office",
+            "backgroundDenoisingEnabled": true,
+            "serverMessages": [
+                "end-of-call-report"
+            ],
+            "server": {
+                "url": "https://sdvzu753p5mbhu3a3lsj23ufje0zldtj.lambda-url.us-east-1.on.aws"
+            },
+            "endCallMessage": endCallMessage,
+            "startSpeakingPlan": {
+                "waitSeconds": 1.5,
+                "smartEndpointingEnabled": true,
+                "transcriptionEndpointingPlan": {
+                    "onPunctuationSeconds": 0.5,
+                    "onNoPunctuationSeconds": 1.5,
+                    "onNumberSeconds": 0.5
+                }
+            },
+            "silenceTimeoutSeconds": 20,
+            "endCallPhrases": [
+                "bye for now",
+                "talk soon"
+            ],
+            "endCallFunctionEnabled": true
+        })
         });
 
         const vapiData = await vapiResponse.json();
