@@ -23,6 +23,11 @@ const menuItems = [
     icon: 'bi-speedometer2'
   },
   {
+    label: 'Contacts',
+    href: '/dashboard/contacts',
+    icon: 'bi-person-lines-fill'
+  },
+  {
     label: 'Agents',
     href: '/dashboard/agents',
     icon: 'bi-robot'

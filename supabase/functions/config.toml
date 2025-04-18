@@ -14,6 +14,9 @@ verify_jwt = true
 [functions.auth]
 verify_jwt = true
 
+[functions.call-webhook]
+verify_jwt = false
+
 [functions.shared]
 [functions.shared.environment]
 STRIPE_SECRET_KEY = "env(STRIPE_SECRET_KEY)"
@@ -21,4 +24,6 @@ STRIPE_WEBHOOK_SECRET = "env(STRIPE_WEBHOOK_SECRET)"
 TWILIO_ACCOUNT_SID = "env(TWILIO_ACCOUNT_SID)"
 TWILIO_AUTH_TOKEN = "env(TWILIO_AUTH_TOKEN)"
 TWILIO_PHONE_NUMBER = "env(TWILIO_PHONE_NUMBER)"
+OPENAI_API_KEY = "env(OPENAI_API_KEY)"
+ZAPIER_WEBHOOK_URL = "env(ZAPIER_WEBHOOK_URL)"
 NEXT_PUBLIC_APP_URL = "env(NEXT_PUBLIC_APP_URL)"
