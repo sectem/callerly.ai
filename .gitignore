@@ -61,3 +61,15 @@ next-env.d.ts
 # Cache
 .cache/
 .next/cache/
+
+# Supabase
+supabase/.temp
+supabase/.wrangler
+supabase/functions/.env
+
+# Sensitive files
+vercel.json
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

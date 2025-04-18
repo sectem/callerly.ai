@@ -19,23 +19,32 @@ export default function ResetPasswordForm() {
   const [success, setSuccess] = useState(false)
   const [validLink, setValidLink] = useState(false)
   const router = useRouter()
+  const { code } = router.query
 
   useEffect(() => {
     const validateResetToken = async () => {
+      if (!code) {
+        setError(ERROR_MESSAGES.INVALID_RESET_LINK)
+        return
+      }
+
       try {
-        const { data: { user }, error } = await supabase.auth.getUser()
-        setValidLink(!error && user)
-        if (error || !user) {
-          setError(ERROR_MESSAGES.INVALID_RESET_LINK)
-        }
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: code,
+          type: 'recovery'
+        })
+        
+        if (error) throw error
+        setValidLink(true)
       } catch (error) {
+        console.error('Error validating reset token:', error)
         setValidLink(false)
         setError(ERROR_MESSAGES.INVALID_RESET_LINK)
       }
     }
 
     validateResetToken()
-  }, [])
+  }, [code])
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -86,15 +95,28 @@ export default function ResetPasswordForm() {
     try {
       setError(null)
       setLoading(true)
-      const { error } = await supabase.auth.updateUser({
+      
+      // First verify the token again
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        token_hash: code,
+        type: 'recovery'
+      })
+      
+      if (verifyError) throw verifyError
+
+      // Then update the password
+      const { error: updateError } = await supabase.auth.updateUser({
         password: formData.password
       })
-      if (error) throw error
+      
+      if (updateError) throw updateError
+      
       setSuccess(true)
       setTimeout(() => {
         router.push('/signin')
       }, 2000)
     } catch (error) {
+      console.error('Error resetting password:', error)
       setError(error.message)
     } finally {
       setLoading(false)
